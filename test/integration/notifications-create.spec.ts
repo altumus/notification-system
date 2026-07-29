@@ -109,12 +109,18 @@ describe('notifications create (integration)', () => {
   it('11-е уведомление в окне → RateLimitExceededError', async () => {
     const userId = randomUUID();
     for (let i = 0; i < 10; i += 1) {
-      await service.create({
+      const result = await service.create({
         userId,
         type: 'chat.message',
         payload: { i },
       });
+      expect(result.status).toBe('created');
     }
+    const count = await sql<{ n: string }>`
+      select count(*)::text as n from notifications
+      where user_id = ${userId}::uuid and type = 'chat.message'
+    `.execute(kysely.db);
+    expect(count.rows[0]?.n).toBe('10');
     await expect(
       service.create({ userId, type: 'chat.message', payload: { i: 10 } }),
     ).rejects.toBeInstanceOf(RateLimitExceededError);

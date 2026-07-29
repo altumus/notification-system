@@ -32,6 +32,8 @@ module.exports = {
       transform: tsJestTransform,
       moduleNameMapper,
       testEnvironment: 'node',
+      // Один контейнер Postgres на прогон: параллельные файлы ломают truncateAll друг другу.
+      maxWorkers: 1,
       globalSetup: '<rootDir>/test/setup/global-setup.ts',
       globalTeardown: '<rootDir>/test/setup/global-teardown.ts',
     },

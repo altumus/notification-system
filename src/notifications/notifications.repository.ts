@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { sql, type Transaction } from 'kysely';
+import { sql, type Kysely, type Transaction } from 'kysely';
 
 import type { Database } from '../database/schema.types.js';
 
 import type { NotificationRow } from './domain/notification.mapper.js';
+
+/** Исполнитель SQL: корневой Kysely или транзакция. */
+type DbExecutor = Kysely<Database> | Transaction<Database>;
 
 /**
  * Результат захвата advisory-lock и серверного времени.
@@ -145,15 +148,15 @@ export class NotificationsRepository {
     type: string,
     windowStart: Date,
   ): Promise<RateWindowCount> {
-    const result = await sql<{ used: number; oldest: Date | null }>`
-      select count(*)::int as used, min(created_at) as oldest
+    const result = await sql<{ used: string; oldest: Date | null }>`
+      select count(*)::text as used, min(created_at) as oldest
       from notifications
       where user_id = ${userId}::uuid
         and type = ${type}
         and created_at > ${windowStart}
     `.execute(trx);
     return {
-      used: result.rows[0]?.used ?? 0,
+      used: Number(result.rows[0]?.used ?? '0'),
       oldest: result.rows[0]?.oldest ?? null,
     };
   }
@@ -188,5 +191,160 @@ export class NotificationsRepository {
       throw new Error('insert: RETURNING пуст');
     }
     return inserted;
+  }
+
+  /**
+   * Помечает уведомление прочитанным, если оно ещё непрочитано.
+   *
+   * @param db - подключение или транзакция
+   * @param userId - владелец
+   * @param id - id уведомления
+   * @param createdAt - created_at из UUIDv7 (partition pruning)
+   * @returns Обновлённая строка или null, если UPDATE не затронул строк
+   */
+  public async markAsReadIfUnread(
+    db: DbExecutor,
+    userId: string,
+    id: string,
+    createdAt: Date,
+  ): Promise<NotificationRow | null> {
+    const result = await sql<NotificationRow>`
+      update notifications
+      set read_at = clock_timestamp()
+      where id = ${id}::uuid
+        and created_at = ${createdAt}
+        and user_id = ${userId}::uuid
+        and read_at is null
+      returning id, user_id, type, payload, occurrences, created_at, last_seen_at, read_at, delivered_at
+    `.execute(db);
+    return result.rows[0] ?? null;
+  }
+
+  /**
+   * Загружает уведомление по составному ключу и владельцу.
+   *
+   * @param db - подключение или транзакция
+   * @param userId - ожидаемый владелец
+   * @param id - id
+   * @param createdAt - created_at из UUIDv7
+   * @returns Строка или null
+   */
+  public async findByIdForUser(
+    db: DbExecutor,
+    userId: string,
+    id: string,
+    createdAt: Date,
+  ): Promise<NotificationRow | null> {
+    const result = await sql<NotificationRow>`
+      select id, user_id, type, payload, occurrences, created_at, last_seen_at, read_at, delivered_at
+      from notifications
+      where id = ${id}::uuid
+        and created_at = ${createdAt}
+        and user_id = ${userId}::uuid
+      limit 1
+    `.execute(db);
+    return result.rows[0] ?? null;
+  }
+
+  /**
+   * Помечает пачку непрочитанных прочитанными (чанк).
+   *
+   * @param db - подключение
+   * @param userId - владелец
+   * @param retentionStart - нижняя граница created_at (окно retention)
+   * @param chunkSize - максимум строк за один UPDATE
+   * @returns Число обновлённых строк
+   */
+  public async markAllAsReadChunk(
+    db: DbExecutor,
+    userId: string,
+    retentionStart: Date,
+    chunkSize: number,
+  ): Promise<number> {
+    const result = await sql<{ id: string }>`
+      update notifications
+      set read_at = clock_timestamp()
+      where ctid in (
+        select ctid from notifications
+        where user_id = ${userId}::uuid
+          and read_at is null
+          and created_at > ${retentionStart}
+        limit ${chunkSize}
+      )
+      returning id
+    `.execute(db);
+    return result.rows.length;
+  }
+
+  /**
+   * Keyset-выборка непрочитанных (limit+1 для nextCursor).
+   *
+   * Зачем: OFFSET на больших объёмах деградирует и пропускает строки при вставках.
+   * Как: `(created_at, id) < (cursor)` в порядке DESC.
+   *
+   * @param db - подключение
+   * @param userId - владелец
+   * @param limit - размер страницы
+   * @param cursor - опциональная позиция
+   * @returns Строки (может быть limit+1)
+   */
+  public async listUnread(
+    db: DbExecutor,
+    userId: string,
+    limit: number,
+    cursor: { createdAt: Date; id: string } | undefined,
+  ): Promise<NotificationRow[]> {
+    const fetchLimit = limit + 1;
+    if (cursor === undefined) {
+      const result = await sql<NotificationRow>`
+        select id, user_id, type, payload, occurrences, created_at, last_seen_at, read_at, delivered_at
+        from notifications
+        where user_id = ${userId}::uuid and read_at is null
+        order by created_at desc, id desc
+        limit ${fetchLimit}
+      `.execute(db);
+      return result.rows;
+    }
+    const result = await sql<NotificationRow>`
+      select id, user_id, type, payload, occurrences, created_at, last_seen_at, read_at, delivered_at
+      from notifications
+      where user_id = ${userId}::uuid
+        and read_at is null
+        and (
+          created_at < ${cursor.createdAt}
+          or (created_at = ${cursor.createdAt} and id < ${cursor.id}::uuid)
+        )
+      order by created_at desc, id desc
+      limit ${fetchLimit}
+    `.execute(db);
+    return result.rows;
+  }
+
+  /**
+   * Считает непрочитанные с верхней границей (для бейджа «N+»).
+   *
+   * @param db - подключение
+   * @param userId - владелец
+   * @param cap - максимум точного подсчёта
+   * @returns count (не больше cap) и exact
+   */
+  public async countUnread(
+    db: DbExecutor,
+    userId: string,
+    cap: number,
+  ): Promise<{ count: number; exact: boolean }> {
+    const result = await sql<{ n: number }>`
+      select count(*)::int as n from (
+        select 1 from notifications
+        where user_id = ${userId}::uuid and read_at is null
+        limit ${cap + 1}
+      ) t
+    `.execute(db);
+    const n = result.rows[0]?.n ?? 0;
+    // Запросили cap+1: если вернулось больше cap — точный count неизвестен (бейдж «N+»).
+    if (n > cap) {
+      return { count: cap, exact: false };
+    }
+    return { count: n, exact: true };
   }
 }

@@ -20,7 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "jest --selectProjects unit",
     "test:unit": "jest --selectProjects unit",
-    "test:integration": "jest --selectProjects integration",
+    "test:integration": "jest --selectProjects integration --runInBand",
     "test:e2e": "jest --selectProjects e2e",
     "test:cov": "jest --coverage",
     "migrate:up": "node-pg-migrate up --config-file migrate.config.cjs",

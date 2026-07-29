@@ -2,12 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { AppConfigService } from '../common/config/app-config.service.js';
-import { newUuidV7 } from '../common/utils/uuid-v7.js';
+import { decodeKeysetCursor, encodeKeysetCursor } from '../common/pagination/keyset-cursor.js';
+import { assertUuidV7, newUuidV7, uuidV7ToDate } from '../common/utils/uuid-v7.js';
 import { KyselyService } from '../database/kysely.service.js';
 import { withTransaction } from '../database/transaction.helper.js';
 
 import { buildDedupHash } from './domain/dedup-hash.js';
-import { RateLimitExceededError } from './domain/errors.js';
+import { NotificationNotFoundError, RateLimitExceededError } from './domain/errors.js';
 import { NotificationTypeConfig } from './domain/notification-type.config.js';
 import type { CreateNotificationResult, Notification } from './domain/notification.entity.js';
 import { mapNotificationRow } from './domain/notification.mapper.js';
@@ -28,6 +29,14 @@ export interface CreateNotificationInput {
  * Зачем: WS-доставка подписывается на это событие в коммите 13; create не знает про сокеты.
  */
 export const NOTIFICATION_CREATED_EVENT = 'notification.created';
+
+/**
+ * Событие синхронизации прочтения между вкладками (подписчик WS — коммит 13).
+ */
+export const NOTIFICATION_READ_EVENT = 'notification.read';
+
+/** Размер чанка markAllAsRead — короткие транзакции вместо одного огромного UPDATE. */
+const MARK_ALL_CHUNK_SIZE = 10_000;
 
 /**
  * Бизнес-правила создания уведомлений (dedup + rate limit).
@@ -171,6 +180,129 @@ export class NotificationsService {
    */
   public getTypeConfig(): NotificationTypeConfig {
     return this.typeConfig;
+  }
+
+  /**
+   * Помечает уведомление прочитанным (идемпотентно).
+   *
+   * Зачем: R1 — mark as read; одинаковый 404 для чужого и отсутствующего (анти-IDOR).
+   * Как: created_at из UUIDv7 → UPDATE одной партиции; при 0 строк — SELECT для идемпотентности.
+   *
+   * @param userId - владелец из токена
+   * @param id - id уведомления (UUIDv7)
+   * @returns Актуальная доменная сущность
+   * @throws {NotificationNotFoundError} Если нет или чужое
+   * @throws {Error} Если id не UUIDv7
+   */
+  public async markAsRead(userId: string, id: string): Promise<Notification> {
+    assertUuidV7(id);
+    const createdAt = uuidV7ToDate(id);
+    const updated = await this.repository.markAsReadIfUnread(
+      this.kyselyService.db,
+      userId,
+      id,
+      createdAt,
+    );
+    if (updated !== null) {
+      const notification = mapNotificationRow(updated);
+      this.eventEmitter.emit(NOTIFICATION_READ_EVENT, {
+        userId,
+        id: notification.id,
+        readAt: notification.readAt,
+      });
+      return notification;
+    }
+    const existing = await this.repository.findByIdForUser(
+      this.kyselyService.db,
+      userId,
+      id,
+      createdAt,
+    );
+    if (existing === null) {
+      throw new NotificationNotFoundError(id);
+    }
+    return mapNotificationRow(existing);
+  }
+
+  /**
+   * Помечает все непрочитанные пользователя прочитанными.
+   *
+   * Зачем: R1 bulk-read; чанки по 10k не держат длинную транзакцию и не раздувают WAL.
+   * Как: цикл UPDATE … LIMIT chunk, пока затронуто > 0; окно по retentionMonths.
+   *
+   * @param userId - владелец
+   * @returns Число обновлённых строк
+   */
+  public async markAllAsRead(userId: string): Promise<{ updated: number }> {
+    const retentionStart = new Date();
+    retentionStart.setUTCMonth(retentionStart.getUTCMonth() - this.config.retentionMonths);
+    let updated = 0;
+    for (;;) {
+      const chunk = await this.repository.markAllAsReadChunk(
+        this.kyselyService.db,
+        userId,
+        retentionStart,
+        MARK_ALL_CHUNK_SIZE,
+      );
+      updated += chunk;
+      if (chunk < MARK_ALL_CHUNK_SIZE) {
+        break;
+      }
+    }
+    return { updated };
+  }
+
+  /**
+   * Список непрочитанных с keyset-пагинацией.
+   *
+   * @param userId - владелец
+   * @param limit - размер страницы 1..100
+   * @param cursor - opaque-курсор или undefined
+   * @returns items, nextCursor, unreadCount (+ exact)
+   */
+  public async listUnread(
+    userId: string,
+    limit: number,
+    cursor: string | undefined,
+  ): Promise<{
+    items: Notification[];
+    nextCursor: string | null;
+    unreadCount: number;
+    unreadCountExact: boolean;
+  }> {
+    const cursorPayload =
+      cursor === undefined || cursor.length === 0 ? undefined : decodeKeysetCursor(cursor);
+    const rows = await this.repository.listUnread(
+      this.kyselyService.db,
+      userId,
+      limit,
+      cursorPayload,
+    );
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+    const nextCursor =
+      hasMore && last !== undefined
+        ? encodeKeysetCursor({ createdAt: last.created_at, id: last.id })
+        : null;
+    const { count, exact } = await this.repository.countUnread(this.kyselyService.db, userId, 1000);
+    return {
+      items: page.map(mapNotificationRow),
+      nextCursor,
+      unreadCount: count,
+      unreadCountExact: exact,
+    };
+  }
+
+  /**
+   * Счётчик непрочитанных для бейджа.
+   *
+   * @param userId - владелец
+   * @param cap - порог «N+»
+   * @returns count и exact
+   */
+  public async countUnread(userId: string, cap = 1000): Promise<{ count: number; exact: boolean }> {
+    return this.repository.countUnread(this.kyselyService.db, userId, cap);
   }
 }
 
