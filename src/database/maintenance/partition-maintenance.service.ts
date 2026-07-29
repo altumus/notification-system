@@ -11,7 +11,7 @@ import { withTransaction } from '../transaction.helper.js';
  * Ключ advisory-лока обслуживания партиций (хешируется в bigint через hashtextextended).
  *
  * Зачем: при нескольких инстансах приложения ежедневная джоба не должна выполняться параллельно
- * на каждом из них — это бессмысленная нагрузка на БД (см. раздел 5, коммит 05 плана).
+ * на каждом из них — это бессмысленная нагрузка на БД.
  */
 const PARTITION_MAINTENANCE_LOCK_KEY = 'notifications:partition-maintenance';
 
@@ -19,8 +19,8 @@ const PARTITION_MAINTENANCE_LOCK_KEY = 'notifications:partition-maintenance';
  * Создаёт и поддерживает партиции таблицы `notifications` наперёд.
  *
  * Зачем: без автосоздания партиций вставки через несколько месяцев начнут падать либо молча
- * оседать в `notifications_default` (см. типичную ошибку №9 из раздела 6 плана) — при 500k
- * уведомлений/сутки это происходит быстро.
+ * оседать в `notifications_default`, теряя partition pruning — при 500k уведомлений/сутки
+ * это происходит быстро.
  * Как: раз в сутки (и один раз сразу при старте приложения) гарантирует наличие партиций на
  * `PARTITION_LOOKAHEAD_MONTHS` месяцев вперёд через идемпотентную SQL-функцию
  * `ensure_notifications_partition`, а также проверяет, не появились ли строки в

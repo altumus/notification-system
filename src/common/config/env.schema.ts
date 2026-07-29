@@ -1,10 +1,22 @@
 import { z } from 'zod';
 
 /**
+ * Дефолтный секрет для локальной разработки.
+ *
+ * Значение публично (лежит в репозитории), поэтому в production запрещено:
+ * `assertProductionSafe` не даст приложению стартовать с ним.
+ */
+export const DEV_JWT_SECRET = 'dev-only-jwt-secret-change-me';
+
+/** Минимальная длина JWT_SECRET в production (256 бит для HS256). */
+export const PRODUCTION_MIN_JWT_SECRET_LENGTH = 32;
+
+/**
  * Zod-схема всех переменных окружения приложения.
  *
  * Зачем: fail-fast на старте с человекочитаемым списком проблем вместо падений в рантайме.
- * Как: дефолты безопасны для локальной разработки; в production секреты валидируются жёстче (коммит 20).
+ * Как: дефолты безопасны для локальной разработки; в production дополнительно работает
+ * `assertProductionSafe` — схема не может выразить правила «зависит от NODE_ENV».
  */
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -17,11 +29,12 @@ export const envSchema = z.object({
     .default('postgresql://notifications:notifications@localhost:5433/notifications'),
   DB_POOL_MAX: z.coerce.number().int().positive().default(10),
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
-  JWT_SECRET: z.string().min(16).default('dev-only-jwt-secret-change-me'),
+  JWT_SECRET: z.string().min(16).default(DEV_JWT_SECRET),
   JWT_TTL: z.string().default('24h'),
+  // Безопасный дефолт: эндпоинт выдачи токенов включается только осознанно.
   AUTH_DEV_TOKENS_ENABLED: z
     .enum(['true', 'false'])
-    .default('true')
+    .default('false')
     .transform((value) => value === 'true'),
   NOTIFICATIONS_RATE_LIMIT: z.coerce.number().int().positive().default(10),
   NOTIFICATIONS_RATE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
@@ -48,10 +61,6 @@ export const envSchema = z.object({
     .transform((value) => value === 'true'),
   CORS_ORIGINS: z.string().default('*'),
   REDIS_URL: z.string().optional(),
-  METRICS_ENABLED: z
-    .enum(['true', 'false'])
-    .default('true')
-    .transform((value) => value === 'true'),
   /**
    * Включает Nest ScheduleModule / @Cron.
    * В Jest выключается через globalSetup — иначе cron-таймеры держат process alive.
@@ -79,13 +88,77 @@ export type EnvConfig = z.infer<typeof envSchema>;
  */
 export function parseEnv(env: NodeJS.ProcessEnv): EnvConfig {
   const result = envSchema.safeParse(env);
-  if (result.success) {
-    return result.data;
+  if (!result.success) {
+    const details = result.error.issues
+      .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .join('\n');
+
+    throw new Error(`Невалидные переменные окружения:\n${details}`);
   }
 
-  const details = result.error.issues
-    .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
-    .join('\n');
+  assertProductionSafe(result.data);
+  return result.data;
+}
 
-  throw new Error(`Невалидные переменные окружения:\n${details}`);
+/**
+ * Проверяет правила, которые нельзя выразить в схеме: они зависят от NODE_ENV.
+ *
+ * Зачем: забытая переменная в production не должна приводить к старту с публично
+ * известным секретом — подделать токен в этом случае может любой, кто видел репозиторий.
+ * Как: жёстко падаем только на том, что делает систему небезопасной без вариантов;
+ * спорные, но осознанные настройки уходят в `productionWarnings`.
+ *
+ * @param config - уже разобранная конфигурация
+ * @returns void
+ * @throws {Error} Если production-конфигурация небезопасна
+ */
+export function assertProductionSafe(config: EnvConfig): void {
+  if (config.NODE_ENV !== 'production') {
+    return;
+  }
+
+  const problems: string[] = [];
+  if (config.JWT_SECRET === DEV_JWT_SECRET) {
+    problems.push(
+      '  - JWT_SECRET: используется дефолтный секрет из репозитория; задайте свой перед деплоем',
+    );
+  } else if (config.JWT_SECRET.length < PRODUCTION_MIN_JWT_SECRET_LENGTH) {
+    problems.push(
+      `  - JWT_SECRET: в production требуется минимум ${String(PRODUCTION_MIN_JWT_SECRET_LENGTH)} символов, получено ${String(config.JWT_SECRET.length)}`,
+    );
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`Небезопасная конфигурация production:\n${problems.join('\n')}`);
+  }
+}
+
+/**
+ * Собирает предупреждения о рискованных, но допустимых production-настройках.
+ *
+ * Зачем: тестовый стенд сознательно открыт (демо-страница выдаёт токены), но это должно
+ * быть видно в логах старта, а не оставаться незамеченным на реальном проде.
+ * Как: возвращает список строк; логирует их `AppConfigService` при инициализации.
+ *
+ * @param config - уже разобранная конфигурация
+ * @returns Список предупреждений (пустой, если всё строго)
+ */
+export function productionWarnings(config: EnvConfig): string[] {
+  if (config.NODE_ENV !== 'production') {
+    return [];
+  }
+
+  const warnings: string[] = [];
+  if (config.AUTH_DEV_TOKENS_ENABLED) {
+    warnings.push(
+      'AUTH_DEV_TOKENS_ENABLED=true в production: POST /auth/dev-token выдаёт токен на любой userId ' +
+        'и роль service. Допустимо только для публичного демо-стенда — выключите на реальном проде.',
+    );
+  }
+  if (config.CORS_ORIGINS.trim() === '*') {
+    warnings.push(
+      'CORS_ORIGINS=* в production: API доступен с любого origin. Перечислите домены явно.',
+    );
+  }
+  return warnings;
 }

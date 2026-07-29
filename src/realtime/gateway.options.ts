@@ -20,7 +20,7 @@ function envInt(name: string, fallback: number): number {
 /**
  * Опции Socket.IO gateway из env (зеркало Zod-схемы).
  *
- * Зачем: ping/namespace/buffer должны настраиваться без пересборки (коммит 12 плана).
+ * Зачем: ping/namespace/buffer должны настраиваться без пересборки образа.
  * Как: читает process.env с теми же дефолтами, что `env.schema.ts`.
  *
  * @returns Опции для `@WebSocketGateway`

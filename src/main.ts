@@ -47,6 +47,8 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.enableCors({ origin: config.getCorsOriginOption() });
+  // Тела запросов заведомо мелкие (payload ограничен 8 КБ в DTO) — не даём слать мегабайты.
+  app.useBodyParser('json', { limit: '64kb' });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -58,7 +60,7 @@ async function bootstrap(): Promise<void> {
   app.useGlobalFilters(new AllExceptionsFilter(await app.resolve(PinoLogger)));
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.setGlobalPrefix('api', {
-    exclude: ['health/live', 'health/ready', 'metrics', 'demo', 'demo/(.*)'],
+    exclude: ['health/live', 'health/ready', 'demo', 'demo/(.*)'],
   });
   // public/demo → GET /demo/ (и файлы app.js/styles.css/vendor/*).
   app.useStaticAssets(join(process.cwd(), 'public', 'demo'), {
@@ -87,6 +89,9 @@ async function bootstrap(): Promise<void> {
   await app.listen(config.port);
   logger.log(`HTTP слушает порт ${String(config.port)}`);
   logger.log(`Демо-страница: http://localhost:${String(config.port)}/demo/`);
+  for (const warning of config.getProductionWarnings()) {
+    logger.warn(warning);
+  }
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.log(`Получен ${signal}, начинаю graceful shutdown`);

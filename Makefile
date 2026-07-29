@@ -1,4 +1,4 @@
-.PHONY: up down logs psql migrate seed test load deploy
+.PHONY: up down logs psql migrate test test-all load load-peak load-stress load-read deploy smoke
 
 up:
 	docker compose up -d --build
@@ -15,14 +15,24 @@ psql:
 migrate:
 	pnpm migrate:up
 
-seed:
-	@echo "Seed будет добавлен позже"
-
 test:
-	pnpm test && pnpm test:integration
+	pnpm test:unit && pnpm test:integration
 
+test-all:
+	pnpm test:unit && pnpm test:integration && pnpm test:e2e
+
+# Нагрузочные профили. Требуют поднятого стенда (make up) и k6: https://k6.io/docs/get-started/installation/
 load:
-	@echo "k6 сценарии появятся в коммите 19"
+	pnpm load
+
+load-peak:
+	k6 run -e LOAD_PROFILE=peak load/create-notifications.js
+
+load-stress:
+	k6 run -e LOAD_PROFILE=stress load/create-notifications.js
+
+load-read:
+	pnpm load:read
 
 deploy:
 	@echo "Railway: см. docs/deployment.md — затем: pnpm smoke https://YOUR-APP.up.railway.app"

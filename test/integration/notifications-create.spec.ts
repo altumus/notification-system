@@ -175,32 +175,71 @@ describe('notifications create (integration)', () => {
     expect(count.rows[0]?.n).toBe('10');
   });
 
-  it('схлопывание не сбрасывает read_at и не тратит rate-limit', async () => {
+  it('схлопывание в непрочитанный якорь не тратит rate-limit', async () => {
     const userId = randomUUID();
-    const first = await service.create({
+    await service.create({
       userId,
       type: 'order.status_changed',
       payload: { orderId: 1 },
     });
-    await sql`
-      update notifications set read_at = now() where id = ${first.notification.id}::uuid
-    `.execute(kysely.db);
 
     for (let i = 0; i < 9; i += 1) {
-      await service.create({ userId, type: 'order.status_changed', payload: { orderId: 1 } });
+      const dup = await service.create({
+        userId,
+        type: 'order.status_changed',
+        payload: { orderId: 1 },
+      });
+      expect(dup.status).toBe('deduplicated');
     }
-    // 1 created + 9 dedup; rate window still has 1 accepted → can create other payloads up to 9 more
+
+    // В окне лимита принята одна строка, поэтому остаётся место под другие payload.
     const other = await service.create({
       userId,
       type: 'order.status_changed',
       payload: { orderId: 2 },
     });
     expect(other.status).toBe('created');
+  });
 
-    const row = await sql<{ read_at: Date | null; occurrences: number }>`
-      select read_at, occurrences from notifications where id = ${first.notification.id}::uuid
+  it('дубль после прочтения якоря → новая строка, прочитанная остаётся прочитанной', async () => {
+    const userId = randomUUID();
+    const payload = { orderId: 1 };
+    const first = await service.create({ userId, type: 'order.status_changed', payload });
+    await service.markAsRead(userId, first.notification.id);
+
+    const second = await service.create({ userId, type: 'order.status_changed', payload });
+
+    // Пользователь уже отреагировал на первое событие — повтор не должен пропасть.
+    expect(second.status).toBe('created');
+    expect(second.notification.id).not.toBe(first.notification.id);
+    expect(second.notification.readAt).toBeNull();
+    expect(second.notification.occurrences).toBe(1);
+
+    const rows = await sql<{ id: string; read_at: Date | null }>`
+      select id, read_at from notifications where user_id = ${userId}::uuid order by created_at
     `.execute(kysely.db);
-    expect(row.rows[0]?.read_at).not.toBeNull();
-    expect(row.rows[0]?.occurrences).toBe(10);
+    expect(rows.rows).toHaveLength(2);
+    expect(rows.rows[0]?.read_at).not.toBeNull();
+    expect(rows.rows[1]?.read_at).toBeNull();
+
+    const unread = await service.listUnread(userId, 10, undefined);
+    expect(unread.items).toHaveLength(1);
+    expect(unread.items[0]?.id).toBe(second.notification.id);
+  });
+
+  it('дубли после прочтения не схлопываются в прочитанный якорь навсегда', async () => {
+    const userId = randomUUID();
+    const payload = { orderId: 5 };
+    const first = await service.create({ userId, type: 'order.status_changed', payload });
+    await service.markAsRead(userId, first.notification.id);
+
+    // Второй якорь непрочитан — следующие дубли схлопываются уже в него.
+    const second = await service.create({ userId, type: 'order.status_changed', payload });
+    const third = await service.create({ userId, type: 'order.status_changed', payload });
+
+    expect(second.status).toBe('created');
+    expect(third.status).toBe('deduplicated');
+    expect(third.notification.id).toBe(second.notification.id);
+    expect(third.notification.occurrences).toBe(2);
   });
 });

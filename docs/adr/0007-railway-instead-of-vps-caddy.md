@@ -6,7 +6,7 @@
 
 ## Контекст
 
-R11 требует публичный HTTPS/WSS URL. В PLAN.md заложен VPS + docker compose + Caddy.
+R11 требует публичный HTTPS/WSS URL. Изначально предполагался VPS + docker compose + Caddy.
 
 ## Решение
 

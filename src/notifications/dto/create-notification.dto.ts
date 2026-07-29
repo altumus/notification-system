@@ -49,7 +49,7 @@ export class PayloadSizeConstraint implements ValidatorConstraintInterface {
 /**
  * HTTP DTO создания уведомления.
  *
- * Зачем: валидация на границе API + примеры для Swagger (R1, правило 7 плана).
+ * Зачем: валидация на границе API + примеры для Swagger (R1).
  */
 export class CreateNotificationDto {
   /**

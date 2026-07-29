@@ -53,7 +53,7 @@ export async function createE2eApp(options: CreateE2eAppOptions = {}): Promise<E
   app.useGlobalFilters(new DomainExceptionFilter());
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.setGlobalPrefix('api', {
-    exclude: ['health/live', 'health/ready', 'metrics', 'demo', 'demo/(.*)'],
+    exclude: ['health/live', 'health/ready', 'demo', 'demo/(.*)'],
   });
   app.useStaticAssets(join(process.cwd(), 'public', 'demo'), {
     prefix: '/demo/',

@@ -21,10 +21,13 @@ interface JwtPayload {
   role: unknown;
 }
 
+/** Разрешённый алгоритм подписи: токены выпускаем сами, на HS256. */
+const ALLOWED_ALGORITHMS = ['HS256'] as const;
+
 /**
  * Общая проверка JWT для HTTP и WebSocket.
  *
- * Зачем: один TokenVerifier — две guard-реализации не расходятся (коммит 10 плана).
+ * Зачем: один TokenVerifier — две guard-реализации не расходятся.
  * Как: JwtService.verifyAsync + проверка role/sub.
  */
 @Injectable()
@@ -62,6 +65,8 @@ export class TokenVerifier {
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
         secret: this.config.jwtSecret,
+        // Явный белый список: иначе принимался бы любой алгоритм, который поддержит библиотека.
+        algorithms: [...ALLOWED_ALGORITHMS],
       });
       if (
         typeof payload.sub !== 'string' ||

@@ -22,6 +22,17 @@ make up
 - Swagger: http://localhost:3001/api/docs
 - Demo: http://localhost:3001/demo/
 
+## Tests
+
+```bash
+pnpm test:unit          # no external dependencies
+pnpm test:integration   # real Postgres via testcontainers (needs Docker)
+pnpm test:e2e           # HTTP + WebSocket against a booted app
+pnpm load               # k6 load profile (needs a running stack)
+```
+
+Load profiles and p95 targets: [docs/en/performance.md](./docs/en/performance.md).
+
 ## Railway
 
 Step-by-step: [docs/en/deployment.md](./docs/en/deployment.md#railway-test-stand-r11).
@@ -48,7 +59,10 @@ Full index: **[docs/README.en.md](./docs/README.en.md)**
 | API (REST / WebSocket) | [docs/en/api.md](./docs/en/api.md)                   |
 | Demo scenarios         | [docs/en/demo.md](./docs/en/demo.md)                 |
 | Deployment             | [docs/en/deployment.md](./docs/en/deployment.md)     |
+| Performance            | [docs/en/performance.md](./docs/en/performance.md)   |
 | **ADRs**               | **[docs/adr/README.en.md](./docs/adr/README.en.md)** |
+
+Assignment items mapped to code: [requirements table R1–R11](./docs/README.en.md#requirements-and-where-they-are-covered).
 
 ## Architecture decisions (ADR)
 

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import type { EnvConfig } from './env.schema.js';
-import { parseEnv } from './env.schema.js';
+import { parseEnv, productionWarnings } from './env.schema.js';
 
 /**
  * Типизированный доступ к конфигурации приложения.
@@ -288,15 +288,6 @@ export class AppConfigService {
   }
 
   /**
-   * Включён ли эндпоинт /metrics.
-   *
-   * @returns true, если метрики отдаются
-   */
-  public get metricsEnabled(): boolean {
-    return this.config.METRICS_ENABLED;
-  }
-
-  /**
    * Включены ли фоновые cron-задачи (ScheduleModule).
    *
    * @returns true, если CRON_ENABLED
@@ -338,5 +329,16 @@ export class AppConfigService {
     return this.config.CORS_ORIGINS.split(',')
       .map((origin) => origin.trim())
       .filter((origin) => origin.length > 0);
+  }
+
+  /**
+   * Предупреждения о рискованных production-настройках.
+   *
+   * Зачем: bootstrap логирует их при старте, чтобы открытый демо-стенд был виден в логах.
+   *
+   * @returns Список предупреждений (пустой вне production или при строгой конфигурации)
+   */
+  public getProductionWarnings(): string[] {
+    return productionWarnings(this.config);
   }
 }

@@ -30,7 +30,7 @@ export interface NotificationsTable {
 /**
  * Строка таблицы idempotency_keys.
  *
- * Зачем: транспортная идемпотентность POST /notifications (коммит 11), отдельно от дедупа R6.
+ * Зачем: транспортная идемпотентность POST /notifications, отдельно от бизнес-дедупа.
  * Как: `response_status = 0` — заявка «в полёте» (ответа ещё нет); иначе HTTP-статус сохранённого ответа.
  */
 export interface IdempotencyKeysTable {

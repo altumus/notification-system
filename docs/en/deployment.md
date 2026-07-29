@@ -52,10 +52,25 @@ Required:
 | Variable                  | Value                                                   |
 | ------------------------- | ------------------------------------------------------- |
 | `DATABASE_URL`            | Reference → Postgres → `DATABASE_URL` (do not hardcode) |
-| `JWT_SECRET`              | `openssl rand -base64 48`                               |
+| `JWT_SECRET`              | `openssl rand -base64 48` — required, 32+ characters    |
 | `NODE_ENV`                | `production`                                            |
-| `AUTH_DEV_TOKENS_ENABLED` | `true` (for `/demo` and smoke)                          |
+| `AUTH_DEV_TOKENS_ENABLED` | `true` only for a public demo stand (see below)         |
 | `CORS_ORIGINS`            | `*` or your domain                                      |
+
+### Production startup checks
+
+With `NODE_ENV=production` the app **refuses to start** if `JWT_SECRET` is unset (the
+repository default would be used) or shorter than 32 characters. This guards against a
+forgotten variable — with a publicly known secret, anyone who has seen the repository can forge
+a token.
+
+Additionally, these warnings are logged at startup (they do not block the start):
+
+- `AUTH_DEV_TOKENS_ENABLED=true` — `POST /auth/dev-token` issues a token for **any** `userId`
+  and the `service` role, which effectively disables authorization on the stand. For a test
+  stand this is a deliberate trade-off: the demo page and `pnpm smoke` work without manual
+  token setup. Use `false` in real production.
+- `CORS_ORIGINS=*` — the API is reachable from any origin.
 
 Railway sets `PORT` automatically — do not set it manually.
 

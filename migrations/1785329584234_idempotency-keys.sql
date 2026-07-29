@@ -1,6 +1,6 @@
 -- Up Migration
 
--- Транспортная идемпотентность create (коммит 11): не путать с бизнес-дедупом R6.
+-- Транспортная идемпотентность create: не путать с бизнес-дедупом по dedup_hash.
 CREATE TABLE idempotency_keys (
   key             text        PRIMARY KEY,
   scope           varchar(64) NOT NULL,

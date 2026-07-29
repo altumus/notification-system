@@ -40,7 +40,7 @@ export interface InsertNotificationRow {
  * SQL-доступ к таблице notifications.
  *
  * Зачем: весь SQL создания сосредоточен здесь — сервис описывает бизнес-порядок,
- * а не тексты запросов (коммит 07 плана).
+ * а не тексты запросов.
  * Как: каждый метод принимает активную транзакцию Kysely; параметризованный SQL только.
  */
 @Injectable()
@@ -76,6 +76,11 @@ export class NotificationsRepository {
   /**
    * Ищет якорь для схлопывания дублей в фиксированном окне.
    *
+   * Прочитанные якоря не участвуют: пользователь уже отреагировал на событие, поэтому
+   * повтор — это новая информация. Схлопывание в прочитанный якорь только увеличило бы
+   * `occurrences`, оставив `read_at` заполненным, и уведомление никогда бы не дошло
+   * (ни в списке непрочитанных, ни push-ом, ни через backlog).
+   *
    * @param trx - активная транзакция
    * @param userId - получатель
    * @param type - тип
@@ -97,6 +102,7 @@ export class NotificationsRepository {
         and type = ${type}
         and dedup_hash = ${dedupHash}
         and created_at > ${windowStart}
+        and read_at is null
       order by created_at desc
       limit 1
       for update
@@ -250,6 +256,10 @@ export class NotificationsRepository {
   /**
    * Помечает пачку непрочитанных прочитанными (чанк).
    *
+   * Адресуем строки первичным ключом `(id, created_at)`, а не `ctid`: `ctid` уникален
+   * только внутри одной партиции, поэтому на партиционированной таблице он совпадает
+   * у строк разных пользователей и UPDATE задел бы чужие уведомления.
+   *
    * @param db - подключение
    * @param userId - владелец
    * @param retentionStart - нижняя граница created_at (окно retention)
@@ -263,16 +273,20 @@ export class NotificationsRepository {
     chunkSize: number,
   ): Promise<number> {
     const result = await sql<{ id: string }>`
-      update notifications
+      update notifications as n
       set read_at = clock_timestamp()
-      where ctid in (
-        select ctid from notifications
+      from (
+        select id, created_at from notifications
         where user_id = ${userId}::uuid
           and read_at is null
           and created_at > ${retentionStart}
+        order by created_at desc, id desc
         limit ${chunkSize}
-      )
-      returning id
+      ) as target
+      where n.id = target.id
+        and n.created_at = target.created_at
+        and n.user_id = ${userId}::uuid
+      returning n.id
     `.execute(db);
     return result.rows.length;
   }

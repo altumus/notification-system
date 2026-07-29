@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 
 /**
- * Хуки счётчиков доставки (реализация Prometheus — коммит 17).
+ * Счётчики доставки: delivered / ack_timeout / offline-skip.
  *
- * Зачем: коммит 13 уже фиксирует точки учёта delivered / ack_timeout / offline-skip.
- * Как: in-memory инкременты; в 17 заменятся на prom-client без смены вызовов.
+ * Зачем: точки учёта собраны в одном месте — тесты проверяют исходы доставки,
+ * а внешний экспорт свёлся бы к замене реализации без правки вызывающего кода.
+ * Как: in-memory инкременты в рамках процесса.
  */
 @Injectable()
 export class DeliveryMetrics {
@@ -40,7 +41,7 @@ export class DeliveryMetrics {
   }
 
   /**
-   * Снимок счётчиков (для тестов до появления /metrics).
+   * Снимок счётчиков.
    *
    * @returns Текущие значения
    */

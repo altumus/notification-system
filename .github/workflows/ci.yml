@@ -32,8 +32,81 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Format check
+        run: pnpm format:check
+
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Build
         run: pnpm build
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      # integration и e2e поднимают PostgreSQL через testcontainers — на ubuntu-latest
+      # Docker уже доступен, отдельный `services:` не нужен.
+      - name: Integration tests
+        run: pnpm test:integration
+
+      - name: E2E tests
+        run: pnpm test:e2e
+
+  load:
+    name: load (smoke profile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install k6
+        run: |
+          curl -fsSL https://github.com/grafana/k6/releases/download/v0.55.0/k6-v0.55.0-linux-amd64.tar.gz \
+            | tar -xz --strip-components=1 -C /usr/local/bin k6-v0.55.0-linux-amd64/k6
+          k6 version
+
+      - name: Start stack
+        run: |
+          cp .env.example .env
+          docker compose up -d --build api
+          ./scripts/wait-for-health.sh http://localhost:3001 90
+
+      - name: Run load profile (500k/day equivalent)
+        run: pnpm load:ci
+
+      - name: Dump API logs on failure
+        if: failure()
+        run: docker compose logs api
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

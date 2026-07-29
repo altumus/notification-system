@@ -1,4 +1,4 @@
-import { parseEnv } from '@/common/config/env.schema';
+import { DEV_JWT_SECRET, parseEnv, productionWarnings } from '@/common/config/env.schema';
 
 describe('parseEnv', () => {
   const base = {
@@ -7,32 +7,39 @@ describe('parseEnv', () => {
     DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
   };
 
+  /** Валидный production-набор: 32+ символов и не дефолтный секрет. */
+  const prodBase = {
+    ...base,
+    NODE_ENV: 'production',
+    JWT_SECRET: 'a'.repeat(32),
+  };
+
   it('принимает валидный набор с дефолтами', () => {
     const config = parseEnv(base);
     expect(config.PORT).toBe(3000);
     expect(config.NOTIFICATIONS_RATE_LIMIT).toBe(10);
-    expect(config.AUTH_DEV_TOKENS_ENABLED).toBe(true);
     expect(config.RETENTION_ENABLED).toBe(false);
-    expect(config.METRICS_ENABLED).toBe(true);
     expect(config.CRON_ENABLED).toBe(true);
     expect(config.SWEEPER_ENABLED).toBe(true);
     expect(config.WS_BACKLOG_MAX_PAGES).toBe(10);
     expect(config.SWEEPER_MIN_AGE_MS).toBe(30_000);
   });
 
+  it('по умолчанию выдача dev-токенов выключена', () => {
+    expect(parseEnv(base).AUTH_DEV_TOKENS_ENABLED).toBe(false);
+  });
+
   it('парсит числовые и boolean-поля из строк', () => {
     const config = parseEnv({
       ...base,
       PORT: '4000',
-      AUTH_DEV_TOKENS_ENABLED: 'false',
+      AUTH_DEV_TOKENS_ENABLED: 'true',
       RETENTION_ENABLED: 'true',
-      METRICS_ENABLED: 'false',
       NOTIFICATIONS_RATE_LIMIT: '5',
     });
     expect(config.PORT).toBe(4000);
-    expect(config.AUTH_DEV_TOKENS_ENABLED).toBe(false);
+    expect(config.AUTH_DEV_TOKENS_ENABLED).toBe(true);
     expect(config.RETENTION_ENABLED).toBe(true);
-    expect(config.METRICS_ENABLED).toBe(false);
     expect(config.NOTIFICATIONS_RATE_LIMIT).toBe(5);
   });
 
@@ -44,5 +51,51 @@ describe('parseEnv', () => {
 
   it('падает при слишком коротком JWT_SECRET', () => {
     expect(() => parseEnv({ ...base, JWT_SECRET: 'short' })).toThrow(/JWT_SECRET/);
+  });
+
+  describe('production', () => {
+    it('не даёт стартовать с дефолтным секретом из репозитория', () => {
+      expect(() => parseEnv({ ...prodBase, JWT_SECRET: DEV_JWT_SECRET })).toThrow(
+        /Небезопасная конфигурация production[\s\S]*JWT_SECRET/,
+      );
+    });
+
+    it('не даёт стартовать без JWT_SECRET (подставился бы дефолт)', () => {
+      const { JWT_SECRET: _omitted, ...withoutSecret } = prodBase;
+      expect(() => parseEnv(withoutSecret)).toThrow(/JWT_SECRET/);
+    });
+
+    it('требует минимум 32 символа секрета', () => {
+      expect(() => parseEnv({ ...prodBase, JWT_SECRET: 'b'.repeat(31) })).toThrow(
+        /минимум 32 символов/,
+      );
+      expect(() => parseEnv({ ...prodBase, JWT_SECRET: 'b'.repeat(32) })).not.toThrow();
+    });
+
+    it('предупреждает про dev-токены и открытый CORS, но не падает', () => {
+      const config = parseEnv({
+        ...prodBase,
+        AUTH_DEV_TOKENS_ENABLED: 'true',
+        CORS_ORIGINS: '*',
+      });
+      const warnings = productionWarnings(config);
+      expect(warnings).toHaveLength(2);
+      expect(warnings.join('\n')).toMatch(/AUTH_DEV_TOKENS_ENABLED/);
+      expect(warnings.join('\n')).toMatch(/CORS_ORIGINS/);
+    });
+
+    it('без предупреждений при строгой конфигурации', () => {
+      const config = parseEnv({
+        ...prodBase,
+        AUTH_DEV_TOKENS_ENABLED: 'false',
+        CORS_ORIGINS: 'https://example.com',
+      });
+      expect(productionWarnings(config)).toEqual([]);
+    });
+
+    it('вне production предупреждений нет даже при слабых настройках', () => {
+      const config = parseEnv({ ...base, AUTH_DEV_TOKENS_ENABLED: 'true', CORS_ORIGINS: '*' });
+      expect(productionWarnings(config)).toEqual([]);
+    });
   });
 });

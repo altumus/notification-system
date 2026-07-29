@@ -92,6 +92,50 @@ describe('notifications read (integration)', () => {
     expect(unread.count).toBe(0);
   });
 
+  it('markAllAsRead не задевает чужие строки с совпадающим ctid в другой партиции', async () => {
+    // Регресс: адресация строк через ctid ломалась на партиционированной таблице —
+    // ctid уникален только внутри партиции, поэтому первые строки разных партиций
+    // получают одинаковый (0,1) и UPDATE помечал прочитанным чужое уведомление.
+    const userA = randomUUID();
+    const userB = randomUUID();
+    const thisMonth = new Date();
+    const nextMonth = new Date(thisMonth);
+    nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+
+    const insert = async (userId: string, createdAt: Date): Promise<string> => {
+      const id = newUuidV7(createdAt.getTime());
+      await sql`
+        insert into notifications (id, user_id, type, payload, dedup_hash, created_at, last_seen_at)
+        values (
+          ${id}::uuid, ${userId}::uuid, 'chat.message', '{}'::jsonb,
+          ${Buffer.alloc(32)}, ${createdAt}, ${createdAt}
+        )
+      `.execute(kysely.db);
+      return id;
+    };
+
+    const idA = await insert(userA, thisMonth);
+    const idB = await insert(userB, nextMonth);
+
+    // Тест имеет смысл только если ctid действительно совпали.
+    const ctids = await sql<{ user_id: string; ctid: string; partition: string }>`
+      select user_id, ctid::text as ctid, tableoid::regclass::text as partition from notifications
+    `.execute(kysely.db);
+    expect(ctids.rows).toHaveLength(2);
+    expect(new Set(ctids.rows.map((r) => r.partition)).size).toBe(2);
+    expect(new Set(ctids.rows.map((r) => r.ctid)).size).toBe(1);
+
+    const result = await service.markAllAsRead(userA);
+    expect(result.updated).toBe(1);
+
+    const rows = await sql<{ id: string; read_at: Date | null }>`
+      select id, read_at from notifications
+    `.execute(kysely.db);
+    const readById = new Map(rows.rows.map((r) => [r.id, r.read_at]));
+    expect(readById.get(idA)).not.toBeNull();
+    expect(readById.get(idB)).toBeNull();
+  });
+
   it('EXPLAIN markAsRead сканирует одну партицию; unread использует индекс', async () => {
     const userId = randomUUID();
     const created = await service.create({

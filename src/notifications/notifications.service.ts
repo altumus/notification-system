@@ -26,12 +26,12 @@ export interface CreateNotificationInput {
 /**
  * Имя доменного события после успешного COMMIT создания.
  *
- * Зачем: WS-доставка подписывается на это событие в коммите 13; create не знает про сокеты.
+ * Зачем: на него подписан `DeliveryDispatcher` — create ничего не знает про сокеты.
  */
 export const NOTIFICATION_CREATED_EVENT = 'notification.created';
 
 /**
- * Событие синхронизации прочтения между вкладками (подписчик WS — коммит 13).
+ * Событие синхронизации прочтения между вкладками (подписчик — `DeliveryDispatcher`).
  */
 export const NOTIFICATION_READ_EVENT = 'notification.read';
 
@@ -41,7 +41,7 @@ const MARK_ALL_CHUNK_SIZE = 10_000;
 /**
  * Бизнес-правила создания уведомлений (dedup + rate limit).
  *
- * Зачем: закрывает R5/R6/R3 одной транзакцией из §3.4 плана.
+ * Зачем: лимит и дедуп должны применяться атомарно, иначе параллельные запросы обходят оба.
  * Как: advisory-lock → поиск якоря → rate-limit → insert; WS-событие только после COMMIT.
  */
 @Injectable()
@@ -73,9 +73,9 @@ export class NotificationsService {
   /**
    * Создаёт уведомление или схлопывает дубль в существующее.
    *
-   * Зачем: атомарно закрывает R5 (лимит) и R6 (дедуп) без гонок между инстансами.
-   * Как: последовательность §3.4 внутри withTransaction; EventEmitter2.emit после COMMIT —
-   * подписчик realtime появится в коммите 13. Схлопывание не публикует событие (нет повторного push).
+   * Зачем: атомарно применяет лимит и дедуп без гонок между инстансами.
+   * Как: advisory-lock → якорь → лимит → insert внутри withTransaction; событие эмитится
+   * только после COMMIT. Схлопывание события не публикует — повторного push быть не должно.
    *
    * @param input - userId, type, payload
    * @returns Discriminated union created | deduplicated
@@ -157,7 +157,7 @@ export class NotificationsService {
         notificationId: result.notification.id,
         durationMs,
       });
-      // Только после COMMIT: realtime подпишется в коммите 13.
+      // Только после COMMIT: подписчик не должен увидеть ещё не зафиксированную строку.
       this.eventEmitter.emit(NOTIFICATION_CREATED_EVENT, result.notification);
     } else {
       this.logger.log({
