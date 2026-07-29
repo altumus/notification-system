@@ -37,5 +37,15 @@ module.exports = {
       globalSetup: '<rootDir>/test/setup/global-setup.ts',
       globalTeardown: '<rootDir>/test/setup/global-teardown.ts',
     },
+    {
+      displayName: 'e2e',
+      testMatch: ['<rootDir>/test/e2e/**/*.e2e-spec.ts'],
+      transform: tsJestTransform,
+      moduleNameMapper,
+      testEnvironment: 'node',
+      maxWorkers: 1,
+      globalSetup: '<rootDir>/test/setup/global-setup.ts',
+      globalTeardown: '<rootDir>/test/setup/global-teardown.ts',
+    },
   ],
 };
