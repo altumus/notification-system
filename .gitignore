@@ -4,6 +4,8 @@ coverage/
 .env
 .env.*
 !.env.example
+!.env.railway.example
+!deploy/.env.railway.example
 *.log
 .DS_Store
 .idea/
