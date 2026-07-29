@@ -43,6 +43,6 @@ USER node
 EXPOSE 3000
 # Railway задаёт PORT; локальный compose по умолчанию 3000.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=25s --retries=5 \
-  CMD-SHELL wget -qO- "http://127.0.0.1:${PORT:-3000}/health/live" || exit 1
+  CMD wget -qO- "http://127.0.0.1:${PORT:-3000}/health/live" || exit 1
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["./scripts/docker-entrypoint.sh"]
