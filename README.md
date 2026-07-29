@@ -29,13 +29,13 @@ make up
 1. New Project from GitHub + Postgres plugin
 2. Variables из [`deploy/.env.railway.example`](./deploy/.env.railway.example) + `DATABASE_URL` из Postgres
 3. Generate Domain
-4. Проверка: `pnpm smoke https://YOUR-APP.up.railway.app`
+4. Проверка: `pnpm smoke https://notification-system-production-0ee5.up.railway.app`
 
-После деплоя сюда же можно вписать боевые URL:
+### Тестовый стенд
 
-- Демо: `https://…/demo/`
-- Swagger: `https://…/api/docs`
-- Health: `https://…/health/live`
+- Демо: https://notification-system-production-0ee5.up.railway.app/demo/
+- Swagger: https://notification-system-production-0ee5.up.railway.app/api/docs
+- Health: https://notification-system-production-0ee5.up.railway.app/health/live
 
 ## Документация
 

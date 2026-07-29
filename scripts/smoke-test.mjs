@@ -104,22 +104,28 @@ async function connectAndReceive(token, createFn) {
 
     /** @type {string | undefined} */
     let expectedId;
+    /** @type {Set<string>} */
+    const seenIds = new Set();
     const timer = setTimeout(() => {
       socket.close();
       reject(new Error('timeout waiting WS delivery'));
     }, 20_000);
 
     /**
-     * Проверяет совпадение id.
+     * Проверяет совпадение id (событие может прийти раньше, чем вернётся create).
      *
      * @param {string | undefined} id
      * @returns {void}
      */
     const maybeDone = (id) => {
-      if (expectedId !== undefined && id === expectedId) {
+      if (typeof id !== 'string') {
+        return;
+      }
+      seenIds.add(id);
+      if (expectedId !== undefined && seenIds.has(expectedId)) {
         clearTimeout(timer);
         socket.close();
-        resolve(id);
+        resolve(expectedId);
       }
     };
 
@@ -137,6 +143,12 @@ async function connectAndReceive(token, createFn) {
       void createFn()
         .then((id) => {
           expectedId = id;
+          // Событие могло прийти раньше ответа create — перепроверим буфер.
+          if (seenIds.has(id)) {
+            clearTimeout(timer);
+            socket.close();
+            resolve(id);
+          }
         })
         .catch((error) => {
           clearTimeout(timer);

@@ -72,19 +72,19 @@ railway up
 
 ### 4. Проверка после деплоя
 
-Подставьте свой домен:
+Базовый URL стенда: `https://notification-system-production-0ee5.up.railway.app`
 
 ```bash
-pnpm smoke https://YOUR-APP.up.railway.app
+pnpm smoke https://notification-system-production-0ee5.up.railway.app
 ```
 
 Чеклист вручную:
 
-- [ ] `https://…/health/live` → 200
-- [ ] `https://…/api/docs` — Swagger
-- [ ] `https://…/demo/` — страница открывается по HTTPS
-- [ ] В демо: Connect → отправка → событие в ленте (в DevTools нет mixed content, WS = `wss://`)
-- [ ] `pnpm smoke https://…` — ALL GREEN
+- [x] https://notification-system-production-0ee5.up.railway.app/health/live → 200
+- [x] https://notification-system-production-0ee5.up.railway.app/api/docs — Swagger
+- [x] https://notification-system-production-0ee5.up.railway.app/demo/ — демо по HTTPS
+- [ ] В демо: сценарии A→E (WS = `wss://`, без mixed content)
+- [x] `pnpm smoke` — ALL GREEN
 
 ### 5. Обновление и откат
 
@@ -111,8 +111,8 @@ Railway → Settings → Domains → Add Domain → DNS CNAME/ALIAS как в UI
 # локально (после make up)
 pnpm smoke http://localhost:3001
 
-# прод
-pnpm smoke https://YOUR-APP.up.railway.app
+# стенд Railway
+pnpm smoke https://notification-system-production-0ee5.up.railway.app
 ```
 
 Скрипт: [`scripts/smoke-test.mjs`](../scripts/smoke-test.mjs).

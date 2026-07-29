@@ -3,7 +3,7 @@
 Публичная тестовая страница: REST + WebSocket без сборщика.
 
 URL локально: `http://localhost:3000/demo/` (после `make up` / `pnpm dev`).  
-На Railway: `https://<ваш-домен>/demo/`.
+Стенд: https://notification-system-production-0ee5.up.railway.app/demo/
 
 ## Как пользоваться
 
