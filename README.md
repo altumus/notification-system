@@ -39,7 +39,6 @@ make up
 
 ## Документация
 
-- [PLAN.md](./PLAN.md) — план реализации
 - [docs/deployment.md](./docs/deployment.md) — локально и Railway
 - [docs/demo.md](./docs/demo.md) — сценарии демо-страницы
 - [docs/api.md](./docs/api.md) — REST / WebSocket
