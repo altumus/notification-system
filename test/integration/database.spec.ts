@@ -48,7 +48,7 @@ describe('database (integration)', () => {
     const result = await indicator.isHealthy();
     expect(result['database']?.status).toBe('down');
 
-    await unreachableKysely.onModuleDestroy();
+    await unreachableKysely.onApplicationShutdown();
   });
 
   describe('withTransaction', () => {

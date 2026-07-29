@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 
 import { KyselyService } from '../database/kysely.service.js';
 import { NotificationsRepository } from '../notifications/notifications.repository.js';
@@ -16,7 +16,7 @@ const FLUSH_MAX_IDS = 100;
  * Как: буфер id → flush каждые 50 мс или при 100 id; flush на shutdown.
  */
 @Injectable()
-export class DeliveredBatchWriter implements OnApplicationShutdown {
+export class DeliveredBatchWriter implements OnModuleDestroy {
   private readonly logger = new Logger(DeliveredBatchWriter.name);
   private readonly buffer: string[] = [];
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -95,9 +95,14 @@ export class DeliveredBatchWriter implements OnApplicationShutdown {
   /**
    * Флашит буфер при остановке приложения.
    *
+   * Зачем: без этого подтверждённые доставки, ещё лежащие в буфере, теряются при рестарте и
+   * клиент получает их повторно (at-least-once не нарушен, но трафик лишний).
+   * Как: `onModuleDestroy` — первая фаза остановки Nest, пул БД закрывается только в
+   * `onApplicationShutdown` (см. KyselyService), поэтому запись гарантированно успевает.
+   *
    * @returns void
    */
-  public async onApplicationShutdown(): Promise<void> {
+  public async onModuleDestroy(): Promise<void> {
     await this.flush();
   }
 }

@@ -73,10 +73,16 @@ k6 run -e BASE_URL=https://your-app.up.railway.app load/create-notifications.js
 Требуется `AUTH_DEV_TOKENS_ENABLED=true` — сценарии сами получают service-токен через
 `POST /auth/dev-token`.
 
+Ещё нужен `HTTP_RATE_LIMIT_ENABLED=false` на стенде. Транспортный лимит частоты считает запросы
+на IP ([ADR-0008](./adr/0008-http-rate-limit.md)), а k6 эмулирует сотни клиентов с одного адреса:
+с включённым лимитом профиль замерит guard, а не API. Бизнес-лимит на `(userId, type)` при этом
+остаётся включённым — именно он и должен давать 429 в отчёте. В CI это делает шаг «Start stack».
+
 ## Как читать результаты
 
 - **429 — это не ошибка.** Профили помечают `429` ожидаемым статусом: сработавший rate limit
-  подтверждает R5. В `http_req_failed` попадают только настоящие сбои.
+  подтверждает R5. В `http_req_failed` попадают только настоящие сбои. Если 429 приходят с
+  `type: too-many-requests`, значит транспортный лимит забыли выключить — это уже не R5.
 - **`notifications_created` / `notifications_deduplicated` / `notifications_rate_limited`** —
   кастомные счётчики: показывают, во что превратилась нагрузка.
 - **`hot-pair` намеренно деградирует по латентности.** Создание берёт
@@ -95,5 +101,8 @@ k6 run -e BASE_URL=https://your-app.up.railway.app load/create-notifications.js
   отказоустойчивости нужен общий adapter (`REDIS_URL` зарезервирован под это).
 - **Rate limit считается в Postgres** запросом по индексу, а не в отдельном хранилище.
   Компромисс и триггер пересмотра — [ADR-0004](./adr/0004-rate-limit-in-postgres.md).
+- **Транспортный лимит частоты держит счётчики в памяти процесса.** При N репликах эффективный
+  лимит — N × `HTTP_RATE_LIMIT`; для общего бюджета нужен `ThrottlerStorageRedis`
+  ([ADR-0008](./adr/0008-http-rate-limit.md)).
 - **Числа зависят от стенда.** Локальный `docker compose` и Railway дают разные результаты:
   сравнивать имеет смысл прогоны на одной конфигурации, а не абсолютные значения между средами.

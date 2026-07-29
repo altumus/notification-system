@@ -26,6 +26,9 @@ export default async function globalSetup(): Promise<void> {
   process.env['CRON_ENABLED'] = 'false';
   // Sweeper включается точечно в offline-backlog e2e, иначе мешает другим сценариям.
   process.env['SWEEPER_ENABLED'] = 'false';
+  // Все запросы в тестах идут с 127.0.0.1 в одно ведро: транспортный лимит зарубил бы прогоны,
+  // которые сознательно шлют пачки запросов. Включается точечно в http-rate-limit e2e.
+  process.env['HTTP_RATE_LIMIT_ENABLED'] = 'false';
 
   const container = await startPostgresContainer();
   globalThis.__NOTIFICATIONS_PG_CONTAINER__ = container;

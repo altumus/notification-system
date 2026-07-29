@@ -97,6 +97,9 @@ jobs:
       - name: Start stack
         run: |
           cp .env.example .env
+          # k6 эмулирует сотни клиентов с одного IP: транспортный лимит частоты упёрся бы
+          # в 429 и профиль мерил бы guard, а не API. Бизнес-лимит на (userId, type) остаётся.
+          echo 'HTTP_RATE_LIMIT_ENABLED=false' >> .env
           docker compose up -d --build api
           ./scripts/wait-for-health.sh http://localhost:3001 90
 

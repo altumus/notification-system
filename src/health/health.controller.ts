@@ -1,6 +1,7 @@
 import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
+import { SkipThrottle } from '@nestjs/throttler';
 
 import { Public } from '../auth/decorators/public.decorator.js';
 import { DatabaseHealthIndicator } from '../database/database.health.js';
@@ -12,8 +13,12 @@ import { getAppVersion } from '../version.js';
  * Зачем: оркестраторы и docker HEALTHCHECK отличают «процесс жив» от «готов принимать трафик».
  * Как: /live всегда 200 и не трогает БД; /ready проверяет доступность PostgreSQL через
  * DatabaseHealthIndicator. VERSION_NEUTRAL — пути без /v1, как требует контракт /health/live.
+ *
+ * SkipThrottle: пробы docker HEALTHCHECK, Railway и балансировщика приходят с одного адреса и не
+ * должны конкурировать за бюджет rate limit с клиентским трафиком — иначе лимит уронит деплой.
  */
 @Public()
+@SkipThrottle()
 @ApiTags('health')
 @Controller({ path: 'health', version: VERSION_NEUTRAL })
 export class HealthController {

@@ -59,6 +59,13 @@ curl -s -X PATCH http://localhost:3001/api/v1/notifications/<id>/read \
 
 Ошибки — `application/problem+json` (RFC 9457). При 429 выставляются `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, `Retry-After`.
 
+429 бывает двух видов, и `problem.type` их различает:
+
+| `problem.type` (суффикс) | Когда                                                                     | Что делать клиенту                          |
+| ------------------------ | ------------------------------------------------------------------------- | ------------------------------------------- |
+| `rate-limit-exceeded`    | превышен бизнес-лимит `NOTIFICATIONS_RATE_LIMIT` на `(userId, type)` (R5) | ждать `Retry-After`; уведомление не создано |
+| `too-many-requests`      | превышен транспортный лимит запросов с одного IP на эндпоинт              | сбавить частоту; см. ADR-0008               |
+
 ## WebSocket
 
 Namespace: `/ws/notifications`. Подключение:

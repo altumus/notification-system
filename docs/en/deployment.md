@@ -56,6 +56,7 @@ Required:
 | `NODE_ENV`                | `production`                                            |
 | `AUTH_DEV_TOKENS_ENABLED` | `true` only for a public demo stand (see below)         |
 | `CORS_ORIGINS`            | `*` or your domain                                      |
+| `HTTP_RATE_LIMIT_ENABLED` | `true` — per-IP request rate limit (see below)          |
 
 ### Production startup checks
 
@@ -71,6 +72,17 @@ Additionally, these warnings are logged at startup (they do not block the start)
   stand this is a deliberate trade-off: the demo page and `pnpm smoke` work without manual
   token setup. Use `false` in real production.
 - `CORS_ORIGINS=*` — the API is reachable from any origin.
+
+### Request rate limit on a public stand
+
+`HTTP_RATE_LIMIT` (300 requests per minute per IP per endpoint by default) protects the stand from
+floods before validation and before hitting the database; `/auth/dev-token` is stricter at 20/min;
+`/health/*` is excluded, otherwise Railway probes would take the deploy down by themselves. See
+[ADR-0008](./../adr/en/0008-http-rate-limit.md).
+
+Counters live in instance memory: with N replicas the effective limit becomes N × the values.
+Disabling it (`HTTP_RATE_LIMIT_ENABLED=false`) only makes sense for k6 runs — the load comes from
+a single IP (see [performance.md](./performance.md)).
 
 Railway sets `PORT` automatically — do not set it manually.
 

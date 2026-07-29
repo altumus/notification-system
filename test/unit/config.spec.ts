@@ -29,6 +29,19 @@ describe('parseEnv', () => {
     expect(parseEnv(base).AUTH_DEV_TOKENS_ENABLED).toBe(false);
   });
 
+  it('транспортный лимит частоты включён по умолчанию', () => {
+    const config = parseEnv(base);
+    expect(config.HTTP_RATE_LIMIT_ENABLED).toBe(true);
+    expect(config.HTTP_RATE_LIMIT).toBe(300);
+    expect(config.HTTP_RATE_WINDOW_MS).toBe(60_000);
+  });
+
+  it('транспортный лимит частоты отключаем флагом', () => {
+    const config = parseEnv({ ...base, HTTP_RATE_LIMIT_ENABLED: 'false', HTTP_RATE_LIMIT: '50' });
+    expect(config.HTTP_RATE_LIMIT_ENABLED).toBe(false);
+    expect(config.HTTP_RATE_LIMIT).toBe(50);
+  });
+
   it('парсит числовые и boolean-поля из строк', () => {
     const config = parseEnv({
       ...base,

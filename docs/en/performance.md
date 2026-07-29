@@ -74,10 +74,17 @@ k6 run -e BASE_URL=https://your-app.up.railway.app load/create-notifications.js
 `AUTH_DEV_TOKENS_ENABLED=true` is required — the scenarios obtain a service token themselves
 via `POST /auth/dev-token`.
 
+`HTTP_RATE_LIMIT_ENABLED=false` is required on the stand as well. The transport rate limit counts
+requests per IP ([ADR-0008](./../adr/en/0008-http-rate-limit.md)), while k6 emulates hundreds of
+clients from a single address: with the limit on, the profile measures the guard instead of the
+API. The business limit on `(userId, type)` stays enabled — that is the one that should produce
+429s in the report. In CI this is handled by the "Start stack" step.
+
 ## How to read the results
 
 - **429 is not a failure.** The profiles mark `429` as an expected status: a triggered rate
-  limit confirms R5. Only genuine failures land in `http_req_failed`.
+  limit confirms R5. Only genuine failures land in `http_req_failed`. If the 429s carry
+  `type: too-many-requests`, the transport limit was left enabled — that is no longer R5.
 - **`notifications_created` / `notifications_deduplicated` / `notifications_rate_limited`** are
   custom counters showing what the load actually turned into.
 - **`hot-pair` is expected to degrade in latency.** Creation takes
@@ -97,6 +104,9 @@ via `POST /auth/dev-token`.
 - **The rate limit is computed in Postgres** by an indexed query rather than a dedicated
   store. Trade-off and revisit trigger:
   [ADR-0004](./../adr/en/0004-rate-limit-in-postgres.md).
+- **The transport rate limit keeps counters in process memory.** With N replicas the effective
+  limit is N × `HTTP_RATE_LIMIT`; a shared budget needs `ThrottlerStorageRedis`
+  ([ADR-0008](./../adr/en/0008-http-rate-limit.md)).
 - **Numbers depend on the environment.** Local `docker compose` and Railway produce different
   results: compare runs on the same configuration rather than absolute values across
   environments.

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import { Body, Controller, NotFoundException, Post } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { IsIn, IsOptional, IsUUID } from 'class-validator';
 
 import { AppConfigService } from '../common/config/app-config.service.js';
@@ -9,6 +10,16 @@ import { AppConfigService } from '../common/config/app-config.service.js';
 import { AuthService } from './auth.service.js';
 import { Public } from './decorators/public.decorator.js';
 import type { ActorRole } from './token-verifier.js';
+
+/**
+ * Лимит выдачи токенов на IP в минуту.
+ *
+ * Зачем: маршрут анонимный, а подпись JWT — единственная в API операция, которая жжёт CPU без
+ * участия БД. Лимит жёстче общего HTTP_RATE_LIMIT и намеренно константа, а не env: это нижняя
+ * граница безопасности, а не настройка эксплуатации. Демо-странице хватает: токен берётся один раз.
+ */
+export const DEV_TOKEN_RATE_LIMIT = 20;
+const DEV_TOKEN_RATE_WINDOW_MS = 60_000;
 
 /**
  * DTO выдачи dev-токена.
@@ -50,8 +61,10 @@ export class AuthController {
    * @throws {NotFoundException} Если dev-токены выключены
    */
   @Public()
+  @Throttle({ default: { limit: DEV_TOKEN_RATE_LIMIT, ttl: DEV_TOKEN_RATE_WINDOW_MS } })
   @Post('dev-token')
   @ApiOperation({ summary: 'Выдать dev-JWT (только при AUTH_DEV_TOKENS_ENABLED)' })
+  @ApiResponse({ status: 429, description: 'Превышен лимит выдачи токенов на IP' })
   public async issueDevToken(
     @Body() body: DevTokenDto,
   ): Promise<{ token: string; userId: string; expiresIn: string }> {

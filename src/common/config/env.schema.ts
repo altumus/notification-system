@@ -39,6 +39,14 @@ export const envSchema = z.object({
   NOTIFICATIONS_RATE_LIMIT: z.coerce.number().int().positive().default(10),
   NOTIFICATIONS_RATE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   NOTIFICATIONS_DEDUP_WINDOW_MS: z.coerce.number().int().positive().default(300_000),
+  // Транспортный лимит запросов на источник — защита от флуда, не путать с бизнес-лимитом
+  // NOTIFICATIONS_RATE_LIMIT (10 уведомлений в минуту одного типа на пользователя).
+  HTTP_RATE_LIMIT_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  HTTP_RATE_LIMIT: z.coerce.number().int().positive().default(300),
+  HTTP_RATE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   WS_PATH: z.string().default('/ws/notifications'),
   WS_BACKLOG_BATCH_SIZE: z.coerce.number().int().positive().default(100),
   WS_BACKLOG_MAX_PAGES: z.coerce.number().int().positive().default(10),

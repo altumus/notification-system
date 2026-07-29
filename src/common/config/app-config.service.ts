@@ -117,6 +117,33 @@ export class AppConfigService {
   }
 
   /**
+   * Включён ли транспортный лимит частоты HTTP-запросов.
+   *
+   * @returns true, если ThrottlerGuard активен
+   */
+  public get httpRateLimitEnabled(): boolean {
+    return this.config.HTTP_RATE_LIMIT_ENABLED;
+  }
+
+  /**
+   * Лимит HTTP-запросов на источник в окне `httpRateWindowMs`.
+   *
+   * @returns Максимум запросов
+   */
+  public get httpRateLimit(): number {
+    return this.config.HTTP_RATE_LIMIT;
+  }
+
+  /**
+   * Окно транспортного лимита частоты в миллисекундах.
+   *
+   * @returns Длина окна
+   */
+  public get httpRateWindowMs(): number {
+    return this.config.HTTP_RATE_WINDOW_MS;
+  }
+
+  /**
    * Глобальный лимит уведомлений на (user, type) в окне.
    *
    * @returns Максимум принятых уведомлений
