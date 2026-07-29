@@ -3,7 +3,6 @@ import {
   Controller,
   ForbiddenException,
   Get,
-  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -12,6 +11,7 @@ import {
   Post,
   Query,
   Res,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
@@ -24,6 +24,7 @@ import type { Notification } from './domain/notification.entity.js';
 import { CreateNotificationDto } from './dto/create-notification.dto.js';
 import { GetUnreadQueryDto } from './dto/get-unread-query.dto.js';
 import { NotificationResponseDto } from './dto/notification-response.dto.js';
+import { IdempotencyInterceptor } from './idempotency/idempotency.interceptor.js';
 import { NotificationsService } from './notifications.service.js';
 
 /**
@@ -51,22 +52,27 @@ export class NotificationsController {
    *
    * @param body - DTO создания
    * @param actor - текущий JWT-актор
-   * @param _idempotencyKey - зарезервировано (коммит 11)
    * @param res - Express Response для статус-кода и заголовков
    * @returns Тело с status и notification
    */
   @Post()
+  @UseInterceptors(IdempotencyInterceptor)
   @ApiOperation({ summary: 'Создать уведомление' })
-  @ApiHeader({ name: 'Idempotency-Key', required: false })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description:
+      'Транспортная идемпотентность (не путать с дедупом). Повтор с тем же ключом и телом → тот же ответ + Idempotent-Replay: true; другой body → 409; параллельный повтор → 409 + Retry-After: 1',
+  })
   @ApiResponse({ status: 201, description: 'Создано' })
   @ApiResponse({ status: 200, description: 'Схлопнуто (deduplicated)' })
   @ApiResponse({ status: 403, description: 'userId не совпадает с токеном роли user' })
+  @ApiResponse({ status: 409, description: 'Конфликт Idempotency-Key' })
   @ApiResponse({ status: 422, description: 'Ошибка валидации' })
   @ApiResponse({ status: 429, description: 'Превышен rate limit' })
   public async create(
     @Body() body: CreateNotificationDto,
     @CurrentUser() actor: AuthenticatedActor,
-    @Headers('idempotency-key') _idempotencyKey: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ status: 'created' | 'deduplicated'; notification: NotificationResponseDto }> {
     if (actor.role === 'user' && body.userId !== actor.userId) {

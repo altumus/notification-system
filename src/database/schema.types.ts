@@ -28,12 +28,29 @@ export interface NotificationsTable {
 }
 
 /**
+ * Строка таблицы idempotency_keys.
+ *
+ * Зачем: транспортная идемпотентность POST /notifications (коммит 11), отдельно от дедупа R6.
+ * Как: `response_status = 0` — заявка «в полёте» (ответа ещё нет); иначе HTTP-статус сохранённого ответа.
+ */
+export interface IdempotencyKeysTable {
+  key: string;
+  scope: string;
+  actor_id: string;
+  request_hash: Buffer;
+  response_status: number;
+  response_body: Record<string, unknown>;
+  created_at: Generated<Date>;
+  expires_at: Date;
+}
+
+/**
  * Схема базы данных для Kysely.
  *
- * Зачем: единая точка типов для всех таблиц; расширяется по мере добавления миграций
- * (следующая — `idempotency_keys` в коммите 11).
+ * Зачем: единая точка типов для всех таблиц; расширяется по мере добавления миграций.
  * Как: имя ключа совпадает с именем таблицы в PostgreSQL.
  */
 export interface Database {
   notifications: NotificationsTable;
+  idempotency_keys: IdempotencyKeysTable;
 }

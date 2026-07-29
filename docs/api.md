@@ -9,6 +9,8 @@
 
 Dev-токен (только при `AUTH_DEV_TOKENS_ENABLED=true`): `POST /api/v1/auth/dev-token` с телом `{ userId?, role? }`.
 
+Опциональный заголовок `Idempotency-Key` на `POST /notifications` — транспортная идемпотентность (TTL 24ч, см. ADR-0006). Повтор с тем же ключом и телом возвращает сохранённый ответ и `Idempotent-Replay: true`; другой body → `409`; параллельный повтор → `409` + `Retry-After: 1`.
+
 ## Эндпоинты
 
 | Метод   | Путь                          | Назначение                        |
