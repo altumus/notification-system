@@ -350,6 +350,92 @@ export class NotificationsRepository {
   }
 
   /**
+   * Страница недоставленных одного пользователя (ASC — порядок догона).
+   *
+   * Зачем: backlog при реконнекте (R9) должен идти от старых к новым.
+   * Как: `delivered_at IS NULL` + keyset `(created_at, id) > cursor`; limit+1 для hasMore.
+   *
+   * @param db - подключение
+   * @param userId - владелец
+   * @param limit - размер страницы
+   * @param retentionStart - нижняя граница created_at
+   * @param cursor - опциональная позиция после последней отданной строки
+   * @returns Строки (может быть limit+1)
+   */
+  public async listUndelivered(
+    db: DbExecutor,
+    userId: string,
+    limit: number,
+    retentionStart: Date,
+    cursor: { createdAt: Date; id: string } | undefined,
+  ): Promise<NotificationRow[]> {
+    const fetchLimit = limit + 1;
+    if (cursor === undefined) {
+      const result = await sql<NotificationRow>`
+        select id, user_id, type, payload, occurrences, created_at, last_seen_at, read_at, delivered_at
+        from notifications
+        where user_id = ${userId}::uuid
+          and delivered_at is null
+          and created_at > ${retentionStart}
+        order by created_at asc, id asc
+        limit ${fetchLimit}
+      `.execute(db);
+      return result.rows;
+    }
+    const result = await sql<NotificationRow>`
+      select id, user_id, type, payload, occurrences, created_at, last_seen_at, read_at, delivered_at
+      from notifications
+      where user_id = ${userId}::uuid
+        and delivered_at is null
+        and created_at > ${retentionStart}
+        and (
+          created_at > ${cursor.createdAt}
+          or (created_at = ${cursor.createdAt} and id > ${cursor.id}::uuid)
+        )
+      order by created_at asc, id asc
+      limit ${fetchLimit}
+    `.execute(db);
+    return result.rows;
+  }
+
+  /**
+   * Недоставленные онлайн-пользователей старше порога (для sweeper).
+   *
+   * Зачем: дожать то, что live-push потерял (падение инстанса, таймаут ack).
+   * Как: `user_id = ANY(...)` + `delivered_at IS NULL` + `created_at < olderThan`.
+   *
+   * @param db - подключение
+   * @param userIds - онлайн userId
+   * @param olderThan - верхняя граница created_at (старше N мс)
+   * @param retentionStart - нижняя граница created_at
+   * @param limit - общий cap на тик
+   * @returns Строки ASC
+   */
+  public async listUndeliveredForUsers(
+    db: DbExecutor,
+    userIds: readonly string[],
+    olderThan: Date,
+    retentionStart: Date,
+    limit: number,
+  ): Promise<NotificationRow[]> {
+    if (userIds.length === 0 || limit <= 0) {
+      return [];
+    }
+    const userIdList = sql.join(userIds.map((id) => sql`${id}::uuid`));
+    const result = await sql<NotificationRow>`
+      select id, user_id, type, payload, occurrences, created_at, last_seen_at, read_at, delivered_at
+      from notifications
+      where user_id in (${userIdList})
+        and delivered_at is null
+        and created_at > ${retentionStart}
+        and created_at < ${olderThan}
+      order by created_at asc, id asc
+      limit ${limit}
+    `.execute(db);
+    return result.rows;
+  }
+
+  /**
    * Ставит delivered_at для пачки id (только где ещё NULL).
    *
    * Зачем: ack клиента / sweeper подтверждают доставку; created_at из UUIDv7 для pruning.

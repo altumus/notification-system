@@ -56,3 +56,23 @@ curl -s -X PATCH http://localhost:3001/api/v1/notifications/<id>/read \
 ```
 
 Ошибки — `application/problem+json` (RFC 9457). При 429 выставляются `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, `Retry-After`.
+
+## WebSocket
+
+Namespace: `/ws/notifications`. Подключение:
+
+```js
+io(URL + '/ws/notifications', { auth: { token }, transports: ['websocket'] });
+```
+
+| Направление | Событие                    | Смысл                                                    |
+| ----------- | -------------------------- | -------------------------------------------------------- |
+| S→C         | `connection.ready`         | Хендшейк ок, `unreadCount`                               |
+| S→C         | `notification.created`     | Live-push; ответить ack `{ ok: true }`                   |
+| S→C         | `notification.backlog`     | Догон при подключении: `{ items, batch, hasMore }` + ack |
+| S→C         | `notification.read`        | Синхронизация вкладок                                    |
+| C→S         | `notification.ack`         | Явное подтверждение `{ ids }`                            |
+| C→S         | `notification.read`        | Пометить прочитанным                                     |
+| C→S         | `notification.fetchUnread` | Дотяжка списка (если backlog обрезан по лимиту)          |
+
+`delivered_at` ставится **только после ack** (at-least-once). Клиент **обязан дедуплицировать события по `id`**: sweeper/backlog могут повторить уже виденное уведомление.

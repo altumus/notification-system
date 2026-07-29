@@ -16,6 +16,7 @@ import { AppConfigService } from '../common/config/app-config.service.js';
 import type { Notification } from '../notifications/domain/notification.entity.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 
+import { BacklogReplayer } from './backlog.replayer.js';
 import { DeliveredBatchWriter } from './delivered-batch.writer.js';
 import { type WsClientPingDto, wsClientPingSchema } from './dto/ws-client-ping.dto.js';
 import { type WsFetchUnreadDto, wsFetchUnreadSchema } from './dto/ws-fetch-unread.dto.js';
@@ -81,6 +82,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    * @param notificationsService - create/read/unread
    * @param config - лимит соединений и ack timeout
    * @param deliveredBatch - батч markDelivered
+   * @param backlogReplayer - догон недоставленных после ready
    */
   public constructor(
     private readonly tokenVerifier: TokenVerifier,
@@ -88,6 +90,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     private readonly notificationsService: NotificationsService,
     private readonly config: AppConfigService,
     private readonly deliveredBatch: DeliveredBatchWriter,
+    private readonly backlogReplayer: BacklogReplayer,
   ) {}
 
   /**
@@ -139,6 +142,11 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     client.emit('connection.ready', {
       unreadCount: unread.count,
       unreadCountExact: unread.exact,
+    });
+
+    // Реплей в фоне: не блокируем хендшейк; при disconnect цикл сам остановится.
+    void this.backlogReplayer.replay(client, userId).catch((error: unknown) => {
+      this.logger.error({ err: error, socketId: client.id, userId }, 'Ошибка backlog replay');
     });
 
     this.logger.log(
