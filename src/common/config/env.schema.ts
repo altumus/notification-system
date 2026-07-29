@@ -13,7 +13,8 @@ export const envSchema = z.object({
   DATABASE_URL: z
     .string()
     .min(1)
-    .default('postgresql://notifications:notifications@localhost:5432/notifications'),
+    // Порт 5433 — так проброшен postgres в docker-compose.yml (см. .env.example).
+    .default('postgresql://notifications:notifications@localhost:5433/notifications'),
   DB_POOL_MAX: z.coerce.number().int().positive().default(10),
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   JWT_SECRET: z.string().min(16).default('dev-only-jwt-secret-change-me'),

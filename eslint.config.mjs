@@ -18,6 +18,7 @@ export default tseslint.config(
       '*.config.cjs',
       'eslint.config.mjs',
       'migrations/**',
+      '.tmp-phase-a/**',
     ],
   },
   eslint.configs.recommended,
