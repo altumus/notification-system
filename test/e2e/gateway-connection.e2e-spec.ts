@@ -1,15 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
-import { type INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
-import { Test, type TestingModule } from '@nestjs/testing';
+import { type INestApplication } from '@nestjs/common';
 import { io, type Socket } from 'socket.io-client';
 import request from 'supertest';
 
-import { AppModule } from '@/app.module';
-import { DomainExceptionFilter } from '@/common/errors/domain-exception.filter';
 import { KyselyService } from '@/database/kysely.service';
 import { type PresenceRegistry, PRESENCE_REGISTRY } from '@/realtime/presence.registry';
 
+import { closeE2eApp, createE2eApp } from '../setup/e2e-app';
 import { truncateAll } from '../setup/testcontainers';
 
 describe('gateway connection e2e', () => {
@@ -17,6 +15,7 @@ describe('gateway connection e2e', () => {
   let kysely: KyselyService;
   let presence: PresenceRegistry;
   let namespaceUrl: string;
+  const openSockets = new Set<Socket>();
 
   /**
    * Выдаёт user JWT.
@@ -47,6 +46,10 @@ describe('gateway connection e2e', () => {
       forceNew: true,
       reconnection: false,
     });
+    openSockets.add(socket);
+    socket.on('disconnect', () => {
+      openSockets.delete(socket);
+    });
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -73,49 +76,36 @@ describe('gateway connection e2e', () => {
 
   beforeAll(async () => {
     process.env['AUTH_DEV_TOKENS_ENABLED'] = 'true';
-    const moduleRef: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleRef.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
-    app.useGlobalFilters(new DomainExceptionFilter());
-    app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
-    app.setGlobalPrefix('api', {
-      exclude: ['health/live', 'health/ready', 'metrics'],
-    });
-    await app.listen(0);
-    const address = app.getHttpServer().address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('Не удалось получить порт тестового сервера');
+    const created = await createE2eApp({ listen: true });
+    app = created.app;
+    if (created.baseUrl === undefined) {
+      throw new Error('e2e app must listen for Socket.IO');
     }
-    namespaceUrl = `http://127.0.0.1:${String(address.port)}/ws/notifications`;
-    kysely = moduleRef.get(KyselyService);
-    presence = moduleRef.get(PRESENCE_REGISTRY);
+    namespaceUrl = `${created.baseUrl}/ws/notifications`;
+    kysely = created.moduleRef.get(KyselyService);
+    presence = created.moduleRef.get(PRESENCE_REGISTRY);
   });
 
   afterEach(async () => {
+    for (const socket of openSockets) {
+      socket.removeAllListeners();
+      socket.close();
+    }
+    openSockets.clear();
     await truncateAll(kysely.db);
   });
 
   afterAll(async () => {
-    await app.close();
+    await closeE2eApp(app);
   });
 
   it('валидный токен → connection.ready с unreadCount', async () => {
     const userId = randomUUID();
     const token = await issueUserToken(userId);
-    const { socket, ready } = await connectReady(token);
+    const { ready } = await connectReady(token);
     expect(ready.unreadCount).toBe(0);
     expect(ready.unreadCountExact).toBe(true);
     expect(presence.isOnline(userId)).toBe(true);
-    socket.close();
   });
 
   it('без токена / мусорный токен → отказ', async () => {
@@ -126,6 +116,7 @@ describe('gateway connection e2e', () => {
         forceNew: true,
         reconnection: false,
       });
+      openSockets.add(socket);
       const timer = setTimeout(() => {
         socket.close();
         reject(new Error('timeout'));
@@ -150,6 +141,7 @@ describe('gateway connection e2e', () => {
         forceNew: true,
         reconnection: false,
       });
+      openSockets.add(socket);
       const timer = setTimeout(() => {
         socket.close();
         reject(new Error('timeout'));
@@ -198,11 +190,9 @@ describe('gateway connection e2e', () => {
   it('11-е соединение на пользователя отклоняется', async () => {
     const userId = randomUUID();
     const token = await issueUserToken(userId);
-    const sockets: Socket[] = [];
 
     for (let i = 0; i < 10; i += 1) {
-      const { socket } = await connectReady(token);
-      sockets.push(socket);
+      await connectReady(token);
     }
     expect(presence.socketCount(userId)).toBe(10);
 
@@ -213,6 +203,7 @@ describe('gateway connection e2e', () => {
         forceNew: true,
         reconnection: false,
       });
+      openSockets.add(socket);
       const timer = setTimeout(() => {
         socket.close();
         reject(new Error('timeout waiting too_many_connections'));
@@ -229,9 +220,5 @@ describe('gateway connection e2e', () => {
         reject(new Error('11th connection should be rejected'));
       });
     });
-
-    for (const socket of sockets) {
-      socket.close();
-    }
   });
 });

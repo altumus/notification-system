@@ -1,47 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
-import { type INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import { type INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Test, type TestingModule } from '@nestjs/testing';
+import { type TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
-import { AppModule } from '@/app.module';
 import { AppConfigService } from '@/common/config/app-config.service';
-import { DomainExceptionFilter } from '@/common/errors/domain-exception.filter';
 import { KyselyService } from '@/database/kysely.service';
 
+import { closeE2eApp, createE2eApp } from '../setup/e2e-app';
 import { truncateAll } from '../setup/testcontainers';
-
-/**
- * Собирает Nest-приложение для e2e auth с текущим process.env.
- *
- * @returns Приложение, Kysely и TestingModule
- */
-async function createApp(): Promise<{
-  app: INestApplication;
-  kysely: KyselyService;
-  moduleRef: TestingModule;
-}> {
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule],
-  }).compile();
-
-  const app = moduleRef.createNestApplication();
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
-  app.useGlobalFilters(new DomainExceptionFilter());
-  app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
-  app.setGlobalPrefix('api', {
-    exclude: ['health/live', 'health/ready', 'metrics'],
-  });
-  await app.init();
-  return { app, kysely: moduleRef.get(KyselyService), moduleRef };
-}
 
 describe('auth e2e', () => {
   let app: INestApplication;
@@ -50,7 +18,10 @@ describe('auth e2e', () => {
 
   beforeAll(async () => {
     process.env['AUTH_DEV_TOKENS_ENABLED'] = 'true';
-    ({ app, kysely, moduleRef } = await createApp());
+    const created = await createE2eApp();
+    app = created.app;
+    moduleRef = created.moduleRef;
+    kysely = moduleRef.get(KyselyService);
   });
 
   afterEach(async () => {
@@ -58,7 +29,7 @@ describe('auth e2e', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    await closeE2eApp(app);
   });
 
   it('без токена → 401', async () => {
@@ -135,11 +106,12 @@ describe('auth e2e (dev-token disabled)', () => {
 
   beforeAll(async () => {
     process.env['AUTH_DEV_TOKENS_ENABLED'] = 'false';
-    ({ app } = await createApp());
+    const created = await createE2eApp();
+    app = created.app;
   });
 
   afterAll(async () => {
-    await app.close();
+    await closeE2eApp(app);
     process.env['AUTH_DEV_TOKENS_ENABLED'] = 'true';
   });
 

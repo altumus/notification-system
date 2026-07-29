@@ -28,11 +28,18 @@ export const envSchema = z.object({
   NOTIFICATIONS_DEDUP_WINDOW_MS: z.coerce.number().int().positive().default(300_000),
   WS_PATH: z.string().default('/ws/notifications'),
   WS_BACKLOG_BATCH_SIZE: z.coerce.number().int().positive().default(100),
+  WS_BACKLOG_MAX_PAGES: z.coerce.number().int().positive().default(10),
   WS_PING_INTERVAL_MS: z.coerce.number().int().positive().default(25_000),
   WS_PING_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
   WS_MAX_HTTP_BUFFER_SIZE: z.coerce.number().int().positive().default(1_000_000),
   WS_MAX_CONNECTIONS_PER_USER: z.coerce.number().int().positive().default(10),
+  WS_ACK_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
   SWEEPER_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
+  SWEEPER_MIN_AGE_MS: z.coerce.number().int().nonnegative().default(30_000),
+  SWEEPER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
   PARTITION_LOOKAHEAD_MONTHS: z.coerce.number().int().nonnegative().default(2),
   RETENTION_MONTHS: z.coerce.number().int().positive().default(6),
   RETENTION_ENABLED: z
@@ -42,6 +49,14 @@ export const envSchema = z.object({
   CORS_ORIGINS: z.string().default('*'),
   REDIS_URL: z.string().optional(),
   METRICS_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /**
+   * Включает Nest ScheduleModule / @Cron.
+   * В Jest выключается через globalSetup — иначе cron-таймеры держат process alive.
+   */
+  CRON_ENABLED: z
     .enum(['true', 'false'])
     .default('true')
     .transform((value) => value === 'true'),

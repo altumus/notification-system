@@ -162,6 +162,15 @@ export class AppConfigService {
   }
 
   /**
+   * Максимум страниц backlog за одно подключение.
+   *
+   * @returns WS_BACKLOG_MAX_PAGES
+   */
+  public get wsBacklogMaxPages(): number {
+    return this.config.WS_BACKLOG_MAX_PAGES;
+  }
+
+  /**
    * Интервал Socket.IO ping.
    *
    * @returns WS_PING_INTERVAL_MS
@@ -198,12 +207,39 @@ export class AppConfigService {
   }
 
   /**
+   * Таймаут ожидания ack на push `notification.created`.
+   *
+   * @returns WS_ACK_TIMEOUT_MS
+   */
+  public get wsAckTimeoutMs(): number {
+    return this.config.WS_ACK_TIMEOUT_MS;
+  }
+
+  /**
    * Интервал sweeper недоставленных уведомлений.
    *
    * @returns Интервал в мс
    */
   public get sweeperIntervalMs(): number {
     return this.config.SWEEPER_INTERVAL_MS;
+  }
+
+  /**
+   * Минимальный возраст недоставленного, прежде чем sweeper его трогает.
+   *
+   * @returns SWEEPER_MIN_AGE_MS
+   */
+  public get sweeperMinAgeMs(): number {
+    return this.config.SWEEPER_MIN_AGE_MS;
+  }
+
+  /**
+   * Включён ли фоновый sweeper недоставленных.
+   *
+   * @returns SWEEPER_ENABLED
+   */
+  public get sweeperEnabled(): boolean {
+    return this.config.SWEEPER_ENABLED;
   }
 
   /**
@@ -261,12 +297,30 @@ export class AppConfigService {
   }
 
   /**
+   * Включены ли фоновые cron-задачи (ScheduleModule).
+   *
+   * @returns true, если CRON_ENABLED
+   */
+  public get cronEnabled(): boolean {
+    return this.config.CRON_ENABLED;
+  }
+
+  /**
    * Признак production-режима.
    *
    * @returns true в production
    */
   public get isProduction(): boolean {
     return this.config.NODE_ENV === 'production';
+  }
+
+  /**
+   * Признак test-режима (Jest).
+   *
+   * @returns true в test
+   */
+  public get isTest(): boolean {
+    return this.config.NODE_ENV === 'test';
   }
 
   /**

@@ -1,4 +1,4 @@
-import { Inject, Logger, UseFilters, UsePipes } from '@nestjs/common';
+import { Inject, Logger, UseFilters } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -6,15 +6,29 @@ import {
   type OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
+  WebSocketServer,
+  WsException,
 } from '@nestjs/websockets';
-import type { Socket } from 'socket.io';
+import type { Server, Socket } from 'socket.io';
 
 import { TokenVerifier } from '../auth/token-verifier.js';
 import { AppConfigService } from '../common/config/app-config.service.js';
+import type { Notification } from '../notifications/domain/notification.entity.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 
+import { DeliveredBatchWriter } from './delivered-batch.writer.js';
 import { type WsClientPingDto, wsClientPingSchema } from './dto/ws-client-ping.dto.js';
+import { type WsFetchUnreadDto, wsFetchUnreadSchema } from './dto/ws-fetch-unread.dto.js';
+import {
+  type WsNotificationAckDto,
+  wsNotificationAckSchema,
+} from './dto/ws-notification-ack.dto.js';
+import {
+  type WsNotificationReadDto,
+  wsNotificationReadSchema,
+} from './dto/ws-notification-read.dto.js';
 import { buildNotificationsGatewayOptions } from './gateway.options.js';
+import { toNotificationWsDto } from './notification-ws.mapper.js';
 import { type PresenceRegistry, PRESENCE_REGISTRY } from './presence.registry.js';
 import { WsExceptionFilter } from './ws-exception.filter.js';
 import { createWsValidationPipe } from './ws-validation.pipe.js';
@@ -29,10 +43,19 @@ interface AuthedSocketData {
 }
 
 /**
- * Socket.IO шлюз уведомлений: auth, presence, connection.ready.
+ * Payload broadcast `notification.read`.
+ */
+interface BroadcastReadPayload {
+  id: string;
+  userId: string;
+  readAt: string | null;
+}
+
+/**
+ * Socket.IO шлюз уведомлений: auth, presence, push с ack.
  *
- * Зачем: R7 — аутентифицированный realtime-канал; доставка событий — в коммите 13.
- * Как: TokenVerifier на connect → join `user:{id}` → PresenceRegistry → unreadCount.
+ * Зачем: R7 — realtime-доставка; delivered_at только после ack (at-least-once).
+ * Как: TokenVerifier на connect; DeliveryDispatcher → deliverCreated; handlers ack/read/fetch.
  */
 @WebSocketGateway(buildNotificationsGatewayOptions())
 @UseFilters(WsExceptionFilter)
@@ -45,25 +68,30 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
   private readonly socketUsers = new Map<string, { userId: string; connectedAt: number }>();
 
   /**
+   * Сервер Socket.IO namespace (для room broadcast / emitWithAck).
+   */
+  @WebSocketServer()
+  private server: Server | undefined;
+
+  /**
    * Создаёт gateway.
    *
    * @param tokenVerifier - общая проверка JWT
    * @param presence - реестр присутствия
-   * @param notificationsService - счётчик непрочитанных для connection.ready
-   * @param config - лимит соединений на пользователя
+   * @param notificationsService - create/read/unread
+   * @param config - лимит соединений и ack timeout
+   * @param deliveredBatch - батч markDelivered
    */
   public constructor(
     private readonly tokenVerifier: TokenVerifier,
     @Inject(PRESENCE_REGISTRY) private readonly presence: PresenceRegistry,
     private readonly notificationsService: NotificationsService,
     private readonly config: AppConfigService,
+    private readonly deliveredBatch: DeliveredBatchWriter,
   ) {}
 
   /**
    * Авторизует сокет, регистрирует presence и шлёт connection.ready.
-   *
-   * Зачем: без валидного токена клиент не должен получать события пользователя.
-   * Как: handshake.auth.token → TokenVerifier; лимит сокетов; join room; emit ready.
    *
    * @param client - подключающийся сокет
    * @returns void
@@ -149,19 +177,123 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   /**
+   * Пушит notification.created во все сокеты пользователя и ждёт ack.
+   *
+   * Зачем: at-least-once — достаточно одного успешного ack среди вкладок.
+   * Как: fetchSockets → timeout(emitWithAck) на каждый; true если хотя бы один ответил.
+   *
+   * @param notification - доменная сущность
+   * @returns true, если хотя бы один сокет подтвердил
+   */
+  public async deliverCreated(notification: Notification): Promise<boolean> {
+    if (this.server === undefined) {
+      return false;
+    }
+    const dto = toNotificationWsDto(notification);
+    const sockets = await this.server.in(userRoom(notification.userId)).fetchSockets();
+    if (sockets.length === 0) {
+      return false;
+    }
+
+    const results = await Promise.all(
+      sockets.map(async (socket) => {
+        try {
+          await socket.timeout(this.config.wsAckTimeoutMs).emitWithAck('notification.created', dto);
+          return true;
+        } catch {
+          return false;
+        }
+      }),
+    );
+    return results.some((acked) => acked);
+  }
+
+  /**
+   * Broadcast `notification.read` во все сокеты пользователя.
+   *
+   * @param payload - данные прочтения (id, userId, readAt ISO)
+   * @returns void
+   */
+  public broadcastRead(payload: BroadcastReadPayload): void {
+    this.server?.to(userRoom(payload.userId)).emit('notification.read', payload);
+  }
+
+  /**
    * Простой ping для проверки WsValidationPipe и ack.
    *
    * @param body - валидированный payload
-   * @param _client - сокет (не используется)
    * @returns pong с nonce
    */
   @SubscribeMessage('client.ping')
-  @UsePipes(createWsValidationPipe(wsClientPingSchema))
   public handleClientPing(
-    @MessageBody() body: WsClientPingDto,
-    @ConnectedSocket() _client: Socket,
+    @MessageBody(createWsValidationPipe(wsClientPingSchema)) body: WsClientPingDto,
   ): { pong: true; nonce: string | null } {
     return { pong: true, nonce: body.nonce ?? null };
+  }
+
+  /**
+   * Ручное подтверждение доставки по списку id.
+   *
+   * @param body - ids
+   * @param client - сокет
+   * @returns ok
+   */
+  @SubscribeMessage('notification.ack')
+  public handleNotificationAck(
+    @MessageBody(createWsValidationPipe(wsNotificationAckSchema)) body: WsNotificationAckDto,
+    @ConnectedSocket() client: Socket,
+  ): { ok: true } {
+    this.requireUserId(client);
+    this.deliveredBatch.enqueueMany(body.ids);
+    return { ok: true };
+  }
+
+  /**
+   * Помечает уведомление прочитанным и синхронизирует вкладки через событие домена.
+   *
+   * @param body - id
+   * @param client - сокет
+   * @returns Результат markAsRead
+   */
+  @SubscribeMessage('notification.read')
+  public async handleNotificationRead(
+    @MessageBody(createWsValidationPipe(wsNotificationReadSchema)) body: WsNotificationReadDto,
+    @ConnectedSocket() client: Socket,
+  ): Promise<{ ok: true; notification: ReturnType<typeof toNotificationWsDto> }> {
+    const userId = this.requireUserId(client);
+    const notification = await this.notificationsService.markAsRead(userId, body.id);
+    return { ok: true, notification: toNotificationWsDto(notification) };
+  }
+
+  /**
+   * Запрашивает страницу непрочитанных по WS (keyset).
+   *
+   * @param body - limit/cursor
+   * @param client - сокет
+   * @returns Страница unread
+   */
+  @SubscribeMessage('notification.fetchUnread')
+  public async handleFetchUnread(
+    @MessageBody(createWsValidationPipe(wsFetchUnreadSchema)) body: WsFetchUnreadDto,
+    @ConnectedSocket() client: Socket,
+  ): Promise<{
+    items: ReturnType<typeof toNotificationWsDto>[];
+    nextCursor: string | null;
+    unreadCount: number;
+    unreadCountExact: boolean;
+  }> {
+    const userId = this.requireUserId(client);
+    const result = await this.notificationsService.listUnread(
+      userId,
+      body.limit ?? 20,
+      body.cursor,
+    );
+    return {
+      items: result.items.map(toNotificationWsDto),
+      nextCursor: result.nextCursor,
+      unreadCount: result.unreadCount,
+      unreadCountExact: result.unreadCountExact,
+    };
   }
 
   /**
@@ -176,6 +308,23 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     client.emit('connection.error', { code, message });
     client.disconnect(true);
     this.logger.warn({ socketId: client.id, code, message }, 'WS соединение отклонено');
+  }
+
+  /**
+   * Достаёт userId авторизованного сокета.
+   *
+   * @param client - сокет
+   * @returns userId
+   * @throws {WsException} Если сессия неизвестна
+   */
+  private requireUserId(client: Socket): string {
+    const session = this.socketUsers.get(client.id);
+    if (session === undefined) {
+      throw new WsException({
+        error: { code: 'unauthorized', message: 'Сокет не авторизован' },
+      });
+    }
+    return session.userId;
   }
 }
 

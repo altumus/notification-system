@@ -1,13 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { type INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
-import { Test, type TestingModule } from '@nestjs/testing';
+import { type INestApplication } from '@nestjs/common';
 import request from 'supertest';
 
-import { AppModule } from '@/app.module';
-import { DomainExceptionFilter } from '@/common/errors/domain-exception.filter';
 import { KyselyService } from '@/database/kysely.service';
 
+import { closeE2eApp, createE2eApp } from '../setup/e2e-app';
 import { truncateAll } from '../setup/testcontainers';
 
 describe('notifications e2e', () => {
@@ -31,25 +29,9 @@ describe('notifications e2e', () => {
 
   beforeAll(async () => {
     process.env['AUTH_DEV_TOKENS_ENABLED'] = 'true';
-    const moduleRef: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleRef.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
-    app.useGlobalFilters(new DomainExceptionFilter());
-    app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
-    app.setGlobalPrefix('api', {
-      exclude: ['health/live', 'health/ready', 'metrics'],
-    });
-    await app.init();
-    kysely = moduleRef.get(KyselyService);
+    const created = await createE2eApp();
+    app = created.app;
+    kysely = created.moduleRef.get(KyselyService);
   });
 
   afterEach(async () => {
@@ -57,7 +39,7 @@ describe('notifications e2e', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    await closeE2eApp(app);
   });
 
   it('POST create → 201; повтор с тем же orderId → 200 deduplicated', async () => {

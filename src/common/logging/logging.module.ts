@@ -44,7 +44,8 @@ function buildPinoHttpOptions(config: AppConfigService): Options {
     },
   };
 
-  if (!config.isProduction) {
+  // pino-pretty поднимает worker-thread и держит Jest process alive после e2e.
+  if (!config.isProduction && !config.isTest) {
     options.transport = {
       target: 'pino-pretty',
       options: { singleLine: true, colorize: true },

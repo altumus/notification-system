@@ -21,6 +21,12 @@ declare global {
  * @returns Promise, завершающийся после готовности БД
  */
 export default async function globalSetup(): Promise<void> {
+  // До создания Nest-приложений: без этого pino-pretty/cron оставляют open handles в Jest.
+  process.env['NODE_ENV'] = 'test';
+  process.env['CRON_ENABLED'] = 'false';
+  // Sweeper включается точечно в offline-backlog e2e, иначе мешает другим сценариям.
+  process.env['SWEEPER_ENABLED'] = 'false';
+
   const container = await startPostgresContainer();
   globalThis.__NOTIFICATIONS_PG_CONTAINER__ = container;
 

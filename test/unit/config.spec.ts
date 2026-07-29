@@ -14,6 +14,10 @@ describe('parseEnv', () => {
     expect(config.AUTH_DEV_TOKENS_ENABLED).toBe(true);
     expect(config.RETENTION_ENABLED).toBe(false);
     expect(config.METRICS_ENABLED).toBe(true);
+    expect(config.CRON_ENABLED).toBe(true);
+    expect(config.SWEEPER_ENABLED).toBe(true);
+    expect(config.WS_BACKLOG_MAX_PAGES).toBe(10);
+    expect(config.SWEEPER_MIN_AGE_MS).toBe(30_000);
   });
 
   it('парсит числовые и boolean-поля из строк', () => {

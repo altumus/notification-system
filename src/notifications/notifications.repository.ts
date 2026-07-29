@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely, type Transaction } from 'kysely';
 
+import { uuidV7ToDate } from '../common/utils/uuid-v7.js';
 import type { Database } from '../database/schema.types.js';
 
 import type { NotificationRow } from './domain/notification.mapper.js';
@@ -346,5 +347,36 @@ export class NotificationsRepository {
       return { count: cap, exact: false };
     }
     return { count: n, exact: true };
+  }
+
+  /**
+   * Ставит delivered_at для пачки id (только где ещё NULL).
+   *
+   * Зачем: ack клиента / sweeper подтверждают доставку; created_at из UUIDv7 для pruning.
+   * Как: UPDATE … FROM (VALUES (id, created_at), …) WHERE delivered_at IS NULL.
+   *
+   * @param db - подключение
+   * @param ids - UUIDv7 уведомлений
+   * @returns Число обновлённых строк
+   */
+  public async markDelivered(db: DbExecutor, ids: readonly string[]): Promise<number> {
+    if (ids.length === 0) {
+      return 0;
+    }
+    // Один UPDATE по VALUES (id, created_at): partition pruning + без N round-trip на пачку.
+    const uniqueIds = [...new Set(ids)];
+    const valueRows = uniqueIds.map((id) => {
+      const createdAt = uuidV7ToDate(id);
+      return sql`(${id}::uuid, ${createdAt}::timestamptz)`;
+    });
+    const result = await sql`
+      update notifications as n
+      set delivered_at = clock_timestamp()
+      from (values ${sql.join(valueRows)}) as v(id, created_at)
+      where n.id = v.id
+        and n.created_at = v.created_at
+        and n.delivered_at is null
+    `.execute(db);
+    return Number(result.numAffectedRows ?? 0);
   }
 }
