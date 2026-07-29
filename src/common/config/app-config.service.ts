@@ -162,6 +162,42 @@ export class AppConfigService {
   }
 
   /**
+   * Интервал Socket.IO ping.
+   *
+   * @returns WS_PING_INTERVAL_MS
+   */
+  public get wsPingIntervalMs(): number {
+    return this.config.WS_PING_INTERVAL_MS;
+  }
+
+  /**
+   * Таймаут Socket.IO ping.
+   *
+   * @returns WS_PING_TIMEOUT_MS
+   */
+  public get wsPingTimeoutMs(): number {
+    return this.config.WS_PING_TIMEOUT_MS;
+  }
+
+  /**
+   * Максимальный размер HTTP-буфера Engine.IO.
+   *
+   * @returns WS_MAX_HTTP_BUFFER_SIZE
+   */
+  public get wsMaxHttpBufferSize(): number {
+    return this.config.WS_MAX_HTTP_BUFFER_SIZE;
+  }
+
+  /**
+   * Лимит одновременных WS-соединений на одного пользователя.
+   *
+   * @returns WS_MAX_CONNECTIONS_PER_USER
+   */
+  public get wsMaxConnectionsPerUser(): number {
+    return this.config.WS_MAX_CONNECTIONS_PER_USER;
+  }
+
+  /**
    * Интервал sweeper недоставленных уведомлений.
    *
    * @returns Интервал в мс

@@ -8,12 +8,13 @@ import { DatabaseModule } from './database/database.module.js';
 import { MaintenanceModule } from './database/maintenance/maintenance.module.js';
 import { HealthModule } from './health/health.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
 
 /**
  * Корневой модуль приложения.
  *
  * Зачем: собирает инфраструктурные и доменные модули.
- * Как: конфиг, логи, auth, БД, maintenance, notifications, health; realtime — в коммитах 12+.
+ * Как: конфиг, логи, auth, БД, maintenance, notifications, realtime, health.
  */
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     DatabaseModule,
     MaintenanceModule,
     NotificationsModule,
+    RealtimeModule,
     HealthModule,
   ],
 })
