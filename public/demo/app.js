@@ -38,6 +38,10 @@ const state = {
   busy: false,
   /** @type {typeof import('socket.io-client').io | null} */
   io: null,
+  /** @type {Map<string, { endsAt: number; windowMs: number }>} type → окно лимита */
+  rateLimits: new Map(),
+  /** @type {ReturnType<typeof setInterval> | null} */
+  rateLimitTick: null,
 };
 
 /**
@@ -160,10 +164,10 @@ function summarizeHttp(status, method, path, body, headers) {
       };
     }
     if (status === 429) {
-      const retry = headers?.get('retry-after') ?? headers?.get('Retry-After') ?? '?';
+      const retry = headers?.get('retry-after') ?? '?';
       return {
         title: 'Лимит превышен (429)',
-        detail: `Подождите ~${String(retry)} с · RateLimit-Limit сработал`,
+        detail: `Подождите ~${String(retry)} с · смотрите таймер в блоке «Сессия»`,
         kind: 'limit',
       };
     }
@@ -296,6 +300,119 @@ function renderStats() {
       node.textContent = String(value);
     }
   }
+}
+
+/**
+ * Форматирует оставшиеся секунды как m:ss или Ns.
+ *
+ * @param {number} totalSec
+ * @returns {string}
+ */
+function formatCountdown(totalSec) {
+  const sec = Math.max(0, Math.ceil(totalSec));
+  if (sec >= 60) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${String(m)}:${String(s).padStart(2, '0')}`;
+  }
+  return `${String(sec)} с`;
+}
+
+/**
+ * Рисует виджет rate-limit (активное окно с максимальным остатком).
+ *
+ * @returns {void}
+ */
+function renderRateLimitTimer() {
+  const box = typedEl('rateLimitBox');
+  const timeEl = typedEl('rateLimitCountdown');
+  const detailEl = typedEl('rateLimitDetail');
+  const bar = typedEl('rateLimitBar');
+  const now = Date.now();
+
+  for (const [type, info] of state.rateLimits) {
+    if (info.endsAt <= now) {
+      state.rateLimits.delete(type);
+    }
+  }
+
+  /** @type {{ type: string; endsAt: number; windowMs: number } | null} */
+  let active = null;
+  for (const [type, info] of state.rateLimits) {
+    if (active === null || info.endsAt > active.endsAt) {
+      active = { type, endsAt: info.endsAt, windowMs: info.windowMs };
+    }
+  }
+
+  if (active === null) {
+    box.className = 'rate-limit idle';
+    timeEl.textContent = 'окна свободны';
+    detailEl.textContent = 'Лимит 10/мин на type · таймер появится после 429';
+    bar.style.width = '0%';
+    if (state.rateLimitTick !== null && state.rateLimits.size === 0) {
+      clearInterval(state.rateLimitTick);
+      state.rateLimitTick = null;
+    }
+    return;
+  }
+
+  const remainMs = Math.max(0, active.endsAt - now);
+  const remainSec = remainMs / 1000;
+  const windowMs = Math.max(active.windowMs, 1);
+  const pct = Math.min(100, Math.max(0, (remainMs / windowMs) * 100));
+
+  box.className = 'rate-limit active';
+  timeEl.textContent = formatCountdown(remainSec);
+  detailEl.textContent = `${active.type} · ещё ${formatCountdown(remainSec)} до снятия лимита`;
+  bar.style.width = `${String(pct)}%`;
+}
+
+/**
+ * Запускает/продлевает таймер по ответу 429.
+ *
+ * @param {string} type
+ * @param {Headers} headers
+ * @returns {void}
+ */
+function armRateLimitFromHeaders(type, headers) {
+  const retryRaw = headers.get('retry-after') ?? headers.get('ratelimit-reset');
+  const windowRaw = headers.get('x-ratelimit-window-ms');
+  const retrySec = Number(retryRaw);
+  if (!Number.isFinite(retrySec) || retrySec <= 0) {
+    return;
+  }
+  const windowMs = Number(windowRaw);
+  const endsAt = Date.now() + retrySec * 1000;
+  state.rateLimits.set(type, {
+    endsAt,
+    windowMs: Number.isFinite(windowMs) && windowMs > 0 ? windowMs : retrySec * 1000,
+  });
+  if (state.rateLimitTick === null) {
+    state.rateLimitTick = setInterval(() => {
+      renderRateLimitTimer();
+    }, 250);
+  }
+  renderRateLimitTimer();
+}
+
+/**
+ * Показывает preview Idempotency-Key в форме.
+ *
+ * @returns {void}
+ */
+function syncIdemPreview() {
+  const preview = typedEl('idemKeyPreview');
+  const on = typedEl('useIdempotency').checked;
+  if (!on) {
+    preview.hidden = true;
+    preview.textContent = '—';
+    return;
+  }
+  if (state.lastIdempotencyKey === null) {
+    state.lastIdempotencyKey = newUuid();
+  }
+  preview.hidden = false;
+  preview.textContent = state.lastIdempotencyKey;
 }
 
 /**
@@ -469,6 +586,8 @@ async function createOnce(body, idempotencyKey) {
     }
   } else if (result.status === 429) {
     state.stats.limited += 1;
+    const type = typeof body?.type === 'string' ? body.type : 'unknown';
+    armRateLimitFromHeaders(type, result.headers);
   }
   renderStats();
   return result;
@@ -496,6 +615,7 @@ async function sendBurst() {
   const key = useIdem ? (state.lastIdempotencyKey ?? newUuid()) : undefined;
   if (useIdem && key !== undefined) {
     state.lastIdempotencyKey = key;
+    syncIdemPreview();
   }
 
   for (let i = 0; i < count; i += 1) {
@@ -747,6 +867,7 @@ async function scenarioIdempotency() {
   typedEl('useIdempotency').checked = true;
   state.lastIdempotencyKey = key;
   state.lastCreateBody = body;
+  syncIdemPreview();
   await createOnce(body, key);
   await sleep(200);
   await createOnce(body, key);
@@ -1070,6 +1191,15 @@ function bindUi() {
   typedEl('btnClearLog').addEventListener('click', () => {
     typedEl('httpLog').innerHTML = '';
   });
+  typedEl('useIdempotency').addEventListener('change', () => {
+    if (typedEl('useIdempotency').checked && state.lastIdempotencyKey === null) {
+      state.lastIdempotencyKey = newUuid();
+    }
+    if (!typedEl('useIdempotency').checked) {
+      // ключ оставляем — «Повторить» всё ещё может использовать последний
+    }
+    syncIdemPreview();
+  });
 
   document.querySelectorAll('[data-scenario]').forEach((node) => {
     node.addEventListener('click', () => {
@@ -1093,6 +1223,8 @@ async function main() {
   applySamplePayload();
   setConnBadge('offline');
   renderStats();
+  renderRateLimitTimer();
+  syncIdemPreview();
   setScenarioBanner('Нажмите «Подготовиться», затем сценарии A → E.');
 
   state.io = await loadSocketIo();

@@ -49,6 +49,17 @@
             <div><span data-stat="limited">0</span><label>лимит 429</label></div>
             <div><span data-stat="backlog">0</span><label>из backlog</label></div>
           </div>
+
+          <div id="rateLimitBox" class="rate-limit idle" aria-live="polite">
+            <div class="rate-limit-top">
+              <span class="rate-limit-label">Rate limit</span>
+              <span id="rateLimitCountdown" class="rate-limit-time">окна свободны</span>
+            </div>
+            <div class="rate-limit-track" aria-hidden="true">
+              <div id="rateLimitBar" class="rate-limit-bar"></div>
+            </div>
+            <p id="rateLimitDetail" class="rate-limit-detail">Лимит 10/мин на type · таймер появится после 429</p>
+          </div>
         </section>
 
         <section class="panel" aria-labelledby="scenarios-title">
@@ -95,52 +106,58 @@
           </div>
         </section>
 
-        <details class="panel manual">
+        <details class="panel manual" open>
           <summary>Ручная отправка</summary>
-          <p class="hint">Для точечных экспериментов. Сценарии выше уже настраивают type/payload.</p>
+          <p class="hint">Точечные эксперименты. Сценарии выше уже подставляют type/payload.</p>
 
-          <label>
-            получатель userId
-            <input id="targetUserId" type="text" autocomplete="off" spellcheck="false" />
-          </label>
+          <div class="manual-grid">
+            <label class="field">
+              <span class="field-label">получатель</span>
+              <input id="targetUserId" type="text" autocomplete="off" spellcheck="false" />
+            </label>
 
-          <label>
-            type
-            <div class="row">
+            <label class="field">
+              <span class="field-label">type</span>
               <select id="typeSelect"></select>
               <input id="typeCustom" type="text" placeholder="или свой type" />
+            </label>
+
+            <label class="field field-payload">
+              <span class="field-label">payload (JSON)</span>
+              <textarea id="payload" rows="5" spellcheck="false"></textarea>
+              <span id="payloadError" class="error" hidden></span>
+            </label>
+
+            <div class="burst-card">
+              <label class="field compact">
+                <span class="field-label">повторов</span>
+                <select id="sendCount">
+                  <option value="1" selected>1</option>
+                  <option value="3">3</option>
+                  <option value="15">15</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span class="field-label">интервал, мс</span>
+                <input id="sendInterval" type="number" min="0" step="50" value="80" />
+              </label>
             </div>
-          </label>
 
-          <label>
-            payload (JSON)
-            <textarea id="payload" rows="6" spellcheck="false"></textarea>
-            <span id="payloadError" class="error" hidden></span>
-          </label>
+            <div class="idem-card">
+              <label class="check">
+                <input id="useIdempotency" type="checkbox" />
+                <span>
+                  Idempotency-Key
+                  <small>повтор с тем же ключом → тот же ответ</small>
+                </span>
+              </label>
+              <code id="idemKeyPreview" class="idem-key" hidden>—</code>
+            </div>
 
-          <div class="row wrap">
-            <label class="inline">
-              повторов
-              <select id="sendCount">
-                <option value="1" selected>1</option>
-                <option value="3">3</option>
-                <option value="15">15</option>
-              </select>
-            </label>
-            <label class="inline">
-              интервал, мс
-              <input id="sendInterval" type="number" min="0" step="50" value="80" />
-            </label>
-          </div>
-
-          <label class="check">
-            <input id="useIdempotency" type="checkbox" />
-            Idempotency-Key на create
-          </label>
-
-          <div class="row">
-            <button type="button" id="btnSend">Отправить</button>
-            <button type="button" id="btnReplayIdem" class="ghost">Повторить с тем же ключом</button>
+            <div class="manual-actions">
+              <button type="button" id="btnSend">Отправить</button>
+              <button type="button" id="btnReplayIdem" class="ghost">Повторить с тем же ключом</button>
+            </div>
           </div>
         </details>
       </aside>
