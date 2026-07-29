@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Notification System — Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span class="brand-mark">NS</span>
+        <div>
+          <h1>Notification System</h1>
+          <p class="tagline">Демо: REST · WebSocket · dedup · rate limit · offline backlog</p>
+        </div>
+      </div>
+      <a class="docs-link" href="/api/docs" target="_blank" rel="noreferrer">Swagger</a>
+    </header>
+
+    <main class="grid">
+      <section class="panel" aria-labelledby="session-title">
+        <h2 id="session-title">Сессия</h2>
+        <p class="hint">Отключитесь → отправьте уведомления → подключитесь снова (офлайн-сценарий).</p>
+
+        <label>
+          userId
+          <div class="row">
+            <input id="userId" type="text" autocomplete="off" spellcheck="false" />
+            <button type="button" id="btnGenerateUser" class="ghost">UUID</button>
+          </div>
+        </label>
+
+        <div class="row">
+          <button type="button" id="btnToken">Получить dev-токен</button>
+          <span id="tokenStatus" class="muted">нет токена</span>
+        </div>
+
+        <div class="status-row">
+          <span id="connBadge" class="badge offline">offline</span>
+          <button type="button" id="btnConnect" class="ghost">Connect</button>
+          <button type="button" id="btnDisconnect" class="ghost">Disconnect</button>
+        </div>
+
+        <div class="stats" id="sessionStats">
+          <div><span data-stat="received">0</span><label>получено</label></div>
+          <div><span data-stat="deduped">0</span><label>схлопнуто</label></div>
+          <div><span data-stat="limited">0</span><label>лимит 429</label></div>
+          <div><span data-stat="backlog">0</span><label>из backlog</label></div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="send-title">
+        <h2 id="send-title">Отправка</h2>
+        <p class="hint">«15 раз» покажет и схлопывание (orderId), и 429 на chat.message.</p>
+
+        <label>
+          получатель userId
+          <input id="targetUserId" type="text" autocomplete="off" spellcheck="false" />
+        </label>
+
+        <label>
+          type
+          <div class="row">
+            <select id="typeSelect"></select>
+            <input id="typeCustom" type="text" placeholder="или свой type" />
+          </div>
+        </label>
+
+        <label>
+          payload (JSON)
+          <textarea id="payload" rows="8" spellcheck="false"></textarea>
+          <span id="payloadError" class="error" hidden></span>
+        </label>
+
+        <div class="row wrap">
+          <label class="inline">
+            повторов
+            <select id="sendCount">
+              <option value="1">1</option>
+              <option value="3">3</option>
+              <option value="15" selected>15</option>
+            </select>
+          </label>
+          <label class="inline">
+            интервал, мс
+            <input id="sendInterval" type="number" min="0" step="50" value="80" />
+          </label>
+        </div>
+
+        <label class="check">
+          <input id="useIdempotency" type="checkbox" />
+          Idempotency-Key на create
+        </label>
+
+        <div class="row">
+          <button type="button" id="btnSend">Отправить</button>
+          <button type="button" id="btnReplayIdem" class="ghost">Повторить с тем же ключом</button>
+        </div>
+      </section>
+
+      <section class="panel wide" aria-labelledby="result-title">
+        <h2 id="result-title">Результат</h2>
+
+        <div class="result-split">
+          <div>
+            <div class="subhead">
+              <h3>Непрочитанные <span id="unreadCount" class="pill">0</span></h3>
+              <div class="row">
+                <button type="button" id="btnRefreshUnread" class="ghost">Обновить</button>
+                <button type="button" id="btnReadAll" class="ghost">Прочитать все</button>
+              </div>
+            </div>
+            <ul id="unreadList" class="list"></ul>
+          </div>
+
+          <div>
+            <h3>Лента WS</h3>
+            <ul id="liveFeed" class="list feed"></ul>
+          </div>
+        </div>
+
+        <h3>HTTP лог</h3>
+        <ul id="httpLog" class="list log"></ul>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -51,9 +51,14 @@ export class HttpAuthGuard implements CanActivate {
       url?: string;
       user?: AuthenticatedActor;
     }>();
-    // Swagger UI и metrics не имеют контроллеров с @Public() — пропускаем по пути.
+    // Swagger / metrics / demo — статика и UI без JWT.
     const path = request.originalUrl ?? request.url ?? '';
-    if (path.startsWith('/api/docs') || path.startsWith('/metrics')) {
+    if (
+      path.startsWith('/api/docs') ||
+      path.startsWith('/metrics') ||
+      path === '/demo' ||
+      path.startsWith('/demo/')
+    ) {
       return true;
     }
 

@@ -1,5 +1,8 @@
+import { join } from 'node:path';
+
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { type NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { Logger, PinoLogger } from 'nestjs-pino';
@@ -11,18 +14,36 @@ import { AllExceptionsFilter } from './common/errors/all-exceptions.filter.js';
 /**
  * Точка входа HTTP-приложения.
  *
- * Зачем: единый bootstrap с security headers, CORS, валидацией, Swagger и graceful shutdown.
- * Как: создаёт Nest-приложение, настраивает пайпы/фильтры, слушает PORT из конфига.
+ * Зачем: единый bootstrap с security headers, CORS, валидацией, Swagger, демо и graceful shutdown.
+ * Как: создаёт Nest-приложение, настраивает пайпы/фильтры/статику `/demo`, слушает PORT.
  *
  * @returns Promise, завершающийся после старта сервера
  */
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   const config = app.get(AppConfigService);
   const logger = app.get(Logger);
 
   app.useLogger(logger);
-  app.use(helmet());
+  // CSP: демо грузит Socket.IO с CDN и локальный ESM-фолбэк; connect к своему origin/ws.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          'default-src': ["'self'"],
+          'script-src': ["'self'", 'https://cdn.socket.io'],
+          'style-src': ["'self'"],
+          'connect-src': ["'self'", 'https://cdn.socket.io', 'ws:', 'wss:'],
+          'img-src': ["'self'", 'data:'],
+          'font-src': ["'self'"],
+          'object-src': ["'none'"],
+          'base-uri': ["'self'"],
+          'frame-ancestors': ["'none'"],
+        },
+      },
+    }),
+  );
   app.enableCors({ origin: config.getCorsOriginOption() });
   app.useGlobalPipes(
     new ValidationPipe({
@@ -35,7 +56,17 @@ async function bootstrap(): Promise<void> {
   app.useGlobalFilters(new AllExceptionsFilter(await app.resolve(PinoLogger)));
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.setGlobalPrefix('api', {
-    exclude: ['health/live', 'health/ready', 'metrics'],
+    exclude: ['health/live', 'health/ready', 'metrics', 'demo', 'demo/(.*)'],
+  });
+  // public/demo → GET /demo/ (и файлы app.js/styles.css/vendor/*).
+  app.useStaticAssets(join(process.cwd(), 'public', 'demo'), {
+    prefix: '/demo/',
+    index: 'index.html',
+  });
+  // Удобный URL без trailing slash.
+  const http = app.getHttpAdapter();
+  http.get('/demo', (_req: unknown, res: unknown) => {
+    (res as { redirect: (path: string) => void }).redirect('/demo/');
   });
   app.enableShutdownHooks();
 
@@ -53,6 +84,7 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(config.port);
   logger.log(`HTTP слушает порт ${String(config.port)}`);
+  logger.log(`Демо-страница: http://localhost:${String(config.port)}/demo/`);
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.log(`Получен ${signal}, начинаю graceful shutdown`);

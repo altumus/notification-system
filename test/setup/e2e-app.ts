@@ -1,4 +1,7 @@
+import { join } from 'node:path';
+
 import { type INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import { type NestExpressApplication } from '@nestjs/platform-express';
 import { Test, type TestingModule } from '@nestjs/testing';
 
 import { AppModule } from '@/app.module';
@@ -29,7 +32,7 @@ export interface E2eApp {
  * Собирает Nest-приложение для e2e с теми же пайпами/префиксом, что и production bootstrap.
  *
  * Зачем: единый teardown и меньше расхождений между e2e-файлами.
- * Как: ValidationPipe + DomainExceptionFilter + URI versioning + prefix `api`.
+ * Как: ValidationPipe + DomainExceptionFilter + URI versioning + prefix `api` + `/demo` static.
  *
  * @param options - listen для WS-тестов
  * @returns Приложение и TestingModule
@@ -39,7 +42,7 @@ export async function createE2eApp(options: CreateE2eAppOptions = {}): Promise<E
     imports: [AppModule],
   }).compile();
 
-  const app = moduleRef.createNestApplication();
+  const app = moduleRef.createNestApplication<NestExpressApplication>();
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -50,7 +53,15 @@ export async function createE2eApp(options: CreateE2eAppOptions = {}): Promise<E
   app.useGlobalFilters(new DomainExceptionFilter());
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.setGlobalPrefix('api', {
-    exclude: ['health/live', 'health/ready', 'metrics'],
+    exclude: ['health/live', 'health/ready', 'metrics', 'demo', 'demo/(.*)'],
+  });
+  app.useStaticAssets(join(process.cwd(), 'public', 'demo'), {
+    prefix: '/demo/',
+    index: 'index.html',
+  });
+  const http = app.getHttpAdapter();
+  http.get('/demo', (_req: unknown, res: unknown) => {
+    (res as { redirect: (path: string) => void }).redirect('/demo/');
   });
   // Нужно, чтобы OnApplicationShutdown (DeliveredBatchWriter) и закрытие пула отработали.
   app.enableShutdownHooks();
