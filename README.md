@@ -12,11 +12,13 @@ API системы уведомлений на NestJS + PostgreSQL + WebSocket (
 
 Проект в разработке. Полный план реализации — в [PLAN.md](./PLAN.md).
 
-## Быстрый старт
+## Быстрый старт (3 команды)
 
 ```bash
-cp .env.example .env   # появится в следующих коммитах
+cp .env.example .env
 make up
+# открыть http://localhost:3001/health/live и http://localhost:3001/api/docs
+# (хост-порты 3001/5433, чтобы не конфликтовать с другими локальными стеками)
 ```
 
-Подробности появятся по мере реализации.
+Подробности: [docs/deployment.md](./docs/deployment.md). Полный план — [PLAN.md](./PLAN.md).

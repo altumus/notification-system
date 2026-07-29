@@ -1,0 +1,17 @@
+node_modules
+dist
+coverage
+.git
+.github
+.env
+.env.*
+!.env.example
+*.log
+docs
+load
+tmp
+.cursor
+agent-transcripts
+**/*.spec.ts
+test
+!test/setup
