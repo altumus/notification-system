@@ -25,4 +25,7 @@ load:
 	@echo "k6 сценарии появятся в коммите 19"
 
 deploy:
-	@echo "См. deploy/deploy.sh (коммит 21)"
+	@echo "Railway: см. docs/deployment.md — затем: pnpm smoke https://YOUR-APP.up.railway.app"
+
+smoke:
+	pnpm smoke $(BASE_URL)

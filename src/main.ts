@@ -25,6 +25,8 @@ async function bootstrap(): Promise<void> {
   const logger = app.get(Logger);
 
   app.useLogger(logger);
+  // Railway / любой reverse-proxy: корректные proto/IP за edge.
+  app.set('trust proxy', 1);
   // CSP: демо грузит Socket.IO с CDN и локальный ESM-фолбэк; connect к своему origin/ws.
   app.use(
     helmet({

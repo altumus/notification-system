@@ -7,18 +7,39 @@ API системы уведомлений на NestJS + PostgreSQL + WebSocket (
 - Node.js 22 LTS, pnpm
 - NestJS 11, PostgreSQL 17, Kysely
 - Socket.IO, Docker Compose
+- Деплой тестового стенда: **Railway**
 
-## Статус
-
-Проект в разработке. Полный план реализации — в [PLAN.md](./PLAN.md).
-
-## Быстрый старт (3 команды)
+## Быстрый старт (локально)
 
 ```bash
 cp .env.example .env
 make up
-# открыть http://localhost:3001/health/live и http://localhost:3001/api/docs
-# (хост-порты 3001/5433, чтобы не конфликтовать с другими локальными стеками)
 ```
 
-Подробности: [docs/deployment.md](./docs/deployment.md). Полный план — [PLAN.md](./PLAN.md).
+- Health: http://localhost:3001/health/live
+- Swagger: http://localhost:3001/api/docs
+- Демо: http://localhost:3001/demo/
+
+## Railway
+
+Пошагово: [docs/deployment.md](./docs/deployment.md#railway-тестовый-стенд-r11).
+
+Кратко:
+
+1. New Project from GitHub + Postgres plugin
+2. Variables из [`deploy/.env.railway.example`](./deploy/.env.railway.example) + `DATABASE_URL` из Postgres
+3. Generate Domain
+4. Проверка: `pnpm smoke https://YOUR-APP.up.railway.app`
+
+После деплоя сюда же можно вписать боевые URL:
+
+- Демо: `https://…/demo/`
+- Swagger: `https://…/api/docs`
+- Health: `https://…/health/live`
+
+## Документация
+
+- [PLAN.md](./PLAN.md) — план реализации
+- [docs/deployment.md](./docs/deployment.md) — локально и Railway
+- [docs/demo.md](./docs/demo.md) — сценарии демо-страницы
+- [docs/api.md](./docs/api.md) — REST / WebSocket
