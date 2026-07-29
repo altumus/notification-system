@@ -21,10 +21,12 @@ describe('demo page e2e', () => {
     expect(res.headers['content-type']).toMatch(/html/);
     expect(res.text).toContain('Notification System');
     expect(res.text).toContain('app.js');
+    expect(res.text).toContain('data-scenario');
   });
 
   it('GET /demo/app.js отдаёт скрипт без авторизации', async () => {
     const res = await request(app.getHttpServer()).get('/demo/app.js').expect(200);
     expect(res.text).toContain('loadSocketIo');
+    expect(res.text).toContain('runScenario');
   });
 });

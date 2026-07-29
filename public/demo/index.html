@@ -12,95 +12,144 @@
         <span class="brand-mark">NS</span>
         <div>
           <h1>Notification System</h1>
-          <p class="tagline">Демо: REST · WebSocket · dedup · rate limit · offline backlog</p>
+          <p class="tagline">Демо стенд: live · dedup · rate limit · offline backlog</p>
         </div>
       </div>
       <a class="docs-link" href="/api/docs" target="_blank" rel="noreferrer">Swagger</a>
     </header>
 
-    <main class="grid">
-      <section class="panel" aria-labelledby="session-title">
-        <h2 id="session-title">Сессия</h2>
-        <p class="hint">Отключитесь → отправьте уведомления → подключитесь снова (офлайн-сценарий).</p>
+    <main class="layout">
+      <aside class="stack">
+        <section class="panel" aria-labelledby="session-title">
+          <h2 id="session-title">1. Сессия</h2>
+          <p class="hint">Один клик: пользователь → токен → WebSocket.</p>
 
-        <label>
-          userId
-          <div class="row">
-            <input id="userId" type="text" autocomplete="off" spellcheck="false" />
-            <button type="button" id="btnGenerateUser" class="ghost">UUID</button>
-          </div>
-        </label>
-
-        <div class="row">
-          <button type="button" id="btnToken">Получить dev-токен</button>
-          <span id="tokenStatus" class="muted">нет токена</span>
-        </div>
-
-        <div class="status-row">
-          <span id="connBadge" class="badge offline">offline</span>
-          <button type="button" id="btnConnect" class="ghost">Connect</button>
-          <button type="button" id="btnDisconnect" class="ghost">Disconnect</button>
-        </div>
-
-        <div class="stats" id="sessionStats">
-          <div><span data-stat="received">0</span><label>получено</label></div>
-          <div><span data-stat="deduped">0</span><label>схлопнуто</label></div>
-          <div><span data-stat="limited">0</span><label>лимит 429</label></div>
-          <div><span data-stat="backlog">0</span><label>из backlog</label></div>
-        </div>
-      </section>
-
-      <section class="panel" aria-labelledby="send-title">
-        <h2 id="send-title">Отправка</h2>
-        <p class="hint">«15 раз» покажет и схлопывание (orderId), и 429 на chat.message.</p>
-
-        <label>
-          получатель userId
-          <input id="targetUserId" type="text" autocomplete="off" spellcheck="false" />
-        </label>
-
-        <label>
-          type
-          <div class="row">
-            <select id="typeSelect"></select>
-            <input id="typeCustom" type="text" placeholder="или свой type" />
-          </div>
-        </label>
-
-        <label>
-          payload (JSON)
-          <textarea id="payload" rows="8" spellcheck="false"></textarea>
-          <span id="payloadError" class="error" hidden></span>
-        </label>
-
-        <div class="row wrap">
-          <label class="inline">
-            повторов
-            <select id="sendCount">
-              <option value="1">1</option>
-              <option value="3">3</option>
-              <option value="15" selected>15</option>
-            </select>
+          <label>
+            userId
+            <div class="row">
+              <input id="userId" type="text" autocomplete="off" spellcheck="false" />
+              <button type="button" id="btnGenerateUser" class="ghost">Новый</button>
+            </div>
           </label>
-          <label class="inline">
-            интервал, мс
-            <input id="sendInterval" type="number" min="0" step="50" value="80" />
+
+          <div class="row wrap">
+            <button type="button" id="btnReady">Подготовиться</button>
+            <span id="tokenStatus" class="muted">нет токена</span>
+          </div>
+
+          <div class="status-row">
+            <span id="connBadge" class="badge offline">offline</span>
+            <button type="button" id="btnConnect" class="ghost">Connect</button>
+            <button type="button" id="btnDisconnect" class="ghost">Disconnect</button>
+          </div>
+
+          <div class="stats" id="sessionStats">
+            <div><span data-stat="received">0</span><label>WS получено</label></div>
+            <div><span data-stat="deduped">0</span><label>схлопнуто</label></div>
+            <div><span data-stat="limited">0</span><label>лимит 429</label></div>
+            <div><span data-stat="backlog">0</span><label>из backlog</label></div>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="scenarios-title">
+          <h2 id="scenarios-title">2. Сценарии</h2>
+          <p class="hint">Жмите по порядку. Справа смотрите ленту WS и HTTP-лог.</p>
+          <p id="scenarioBanner" class="scenario-banner" hidden></p>
+
+          <div class="scenarios" id="scenarios">
+            <button type="button" class="scenario" data-scenario="live">
+              <span class="scenario-num">A</span>
+              <span class="scenario-body">
+                <strong>Live-доставка</strong>
+                <small>Токен → Connect → 1 сообщение → событие в ленте</small>
+              </span>
+            </button>
+            <button type="button" class="scenario" data-scenario="dedup">
+              <span class="scenario-num">B</span>
+              <span class="scenario-body">
+                <strong>Схлопывание дублей</strong>
+                <small>Один заказ ×3 → 201, затем 200 · одно событие ×N</small>
+              </span>
+            </button>
+            <button type="button" class="scenario" data-scenario="rateLimit">
+              <span class="scenario-num">C</span>
+              <span class="scenario-body">
+                <strong>Rate limit 10/мин</strong>
+                <small>15 разных chat.message → после 10-го появятся 429</small>
+              </span>
+            </button>
+            <button type="button" class="scenario" data-scenario="backlog">
+              <span class="scenario-num">D</span>
+              <span class="scenario-body">
+                <strong>Офлайн → backlog</strong>
+                <small>Disconnect → 3 шт → Connect → badge backlog</small>
+              </span>
+            </button>
+            <button type="button" class="scenario" data-scenario="idempotency">
+              <span class="scenario-num">E</span>
+              <span class="scenario-body">
+                <strong>Idempotency-Key</strong>
+                <small>Два create с одним ключом → один результат, без второго push</small>
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <details class="panel manual">
+          <summary>Ручная отправка</summary>
+          <p class="hint">Для точечных экспериментов. Сценарии выше уже настраивают type/payload.</p>
+
+          <label>
+            получатель userId
+            <input id="targetUserId" type="text" autocomplete="off" spellcheck="false" />
           </label>
+
+          <label>
+            type
+            <div class="row">
+              <select id="typeSelect"></select>
+              <input id="typeCustom" type="text" placeholder="или свой type" />
+            </div>
+          </label>
+
+          <label>
+            payload (JSON)
+            <textarea id="payload" rows="6" spellcheck="false"></textarea>
+            <span id="payloadError" class="error" hidden></span>
+          </label>
+
+          <div class="row wrap">
+            <label class="inline">
+              повторов
+              <select id="sendCount">
+                <option value="1" selected>1</option>
+                <option value="3">3</option>
+                <option value="15">15</option>
+              </select>
+            </label>
+            <label class="inline">
+              интервал, мс
+              <input id="sendInterval" type="number" min="0" step="50" value="80" />
+            </label>
+          </div>
+
+          <label class="check">
+            <input id="useIdempotency" type="checkbox" />
+            Idempotency-Key на create
+          </label>
+
+          <div class="row">
+            <button type="button" id="btnSend">Отправить</button>
+            <button type="button" id="btnReplayIdem" class="ghost">Повторить с тем же ключом</button>
+          </div>
+        </details>
+      </aside>
+
+      <section class="panel results" aria-labelledby="result-title">
+        <div class="subhead">
+          <h2 id="result-title">3. Результат</h2>
+          <button type="button" id="btnClearLog" class="ghost">Очистить лог</button>
         </div>
-
-        <label class="check">
-          <input id="useIdempotency" type="checkbox" />
-          Idempotency-Key на create
-        </label>
-
-        <div class="row">
-          <button type="button" id="btnSend">Отправить</button>
-          <button type="button" id="btnReplayIdem" class="ghost">Повторить с тем же ключом</button>
-        </div>
-      </section>
-
-      <section class="panel wide" aria-labelledby="result-title">
-        <h2 id="result-title">Результат</h2>
 
         <div class="result-split">
           <div>
@@ -115,12 +164,15 @@
           </div>
 
           <div>
-            <h3>Лента WS</h3>
+            <h3>Лента WebSocket</h3>
             <ul id="liveFeed" class="list feed"></ul>
           </div>
         </div>
 
-        <h3>HTTP лог</h3>
+        <div class="subhead log-head">
+          <h3>HTTP лог</h3>
+          <span class="muted">сверху — новые; клик по строке раскрывает JSON</span>
+        </div>
         <ul id="httpLog" class="list log"></ul>
       </section>
     </main>

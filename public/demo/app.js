@@ -2,7 +2,7 @@
  * Клиент демо-страницы Notification System.
  *
  * Зачем: за минуту показать R5/R6/R7/R8/R9 без Postman.
- * Как: REST + Socket.IO; дедуп событий по id (Map); ack на live/backlog.
+ * Как: кнопки сценариев + REST/Socket.IO; дедуп событий по id; ack на live/backlog.
  */
 
 const KNOWN_TYPES = [
@@ -35,6 +35,9 @@ const state = {
   lastCreateBody: /** @type {object | null} */ (null),
   stats: { received: 0, deduped: 0, limited: 0, backlog: 0 },
   reconnecting: false,
+  busy: false,
+  /** @type {typeof import('socket.io-client').io | null} */
+  io: null,
 };
 
 /**
@@ -94,30 +97,191 @@ function apiBase() {
 }
 
 /**
- * Пишет строку в HTTP-лог с подсветкой кода.
+ * Короткое человекочитаемое описание HTTP-ответа.
  *
  * @param {number} status
  * @param {string} method
  * @param {string} path
  * @param {unknown} body
+ * @param {Headers | undefined} headers
+ * @returns {{ title: string; detail: string; kind: string }}
+ */
+function summarizeHttp(status, method, path, body, headers) {
+  const data =
+    body !== null && typeof body === 'object' ? /** @type {Record<string, any>} */ (body) : null;
+
+  if (status === 0) {
+    return {
+      title: data?.error ? String(data.error) : 'Локальное сообщение',
+      detail: path,
+      kind: 'local',
+    };
+  }
+
+  if (path.includes('/auth/dev-token')) {
+    if (status >= 200 && status < 300) {
+      return {
+        title: 'Токен получен',
+        detail: `user ${String(data?.userId ?? '').slice(0, 8)}… · роль ${String(data?.role ?? 'service')}`,
+        kind: 'ok',
+      };
+    }
+    return { title: 'Не удалось получить токен', detail: `${method} ${path}`, kind: 'err' };
+  }
+
+  if (path.includes('/notifications') && method === 'POST' && !path.includes('read')) {
+    if (status === 201 && data?.status === 'created') {
+      return {
+        title: 'Создано новое уведомление',
+        detail: `${String(data.notification?.type ?? '')} · id …${String(data.notification?.id ?? '').slice(-8)}`,
+        kind: 'created',
+      };
+    }
+    if (status === 200 && data?.status === 'deduplicated') {
+      const occ = data.notification?.occurrences ?? '?';
+      return {
+        title: `Схлопнуто в существующее (×${String(occ)})`,
+        detail: `${String(data.notification?.type ?? '')} · тот же id`,
+        kind: 'dedup',
+      };
+    }
+    if (status === 200 && headers?.get('idempotent-replay') === 'true') {
+      return {
+        title: 'Idempotency replay — тот же ответ',
+        detail: 'Повтор с тем же ключом, новая сущность не создана',
+        kind: 'idem',
+      };
+    }
+    if (status === 200 && data?.notification?.id) {
+      return {
+        title: 'Ответ 200 (возможно replay)',
+        detail: String(data.status ?? 'ok'),
+        kind: 'ok',
+      };
+    }
+    if (status === 429) {
+      const retry = headers?.get('retry-after') ?? headers?.get('Retry-After') ?? '?';
+      return {
+        title: 'Лимит превышен (429)',
+        detail: `Подождите ~${String(retry)} с · RateLimit-Limit сработал`,
+        kind: 'limit',
+      };
+    }
+  }
+
+  if (path.includes('/unread') && status === 200) {
+    const count = data?.unreadCount ?? data?.items?.length ?? 0;
+    return { title: 'Список непрочитанных', detail: `${String(count)} шт.`, kind: 'ok' };
+  }
+
+  if (path.includes('/read') && status === 200) {
+    return { title: 'Помечено прочитанным', detail: path, kind: 'ok' };
+  }
+
+  if (status >= 500) {
+    return {
+      title: 'Ошибка сервера',
+      detail: `${method} ${path} → ${String(status)}`,
+      kind: 'err',
+    };
+  }
+  if (status >= 400) {
+    const msg = data?.title ?? data?.detail ?? data?.message ?? data?.error ?? `${method} ${path}`;
+    return { title: `Ошибка ${String(status)}`, detail: String(msg), kind: 'err' };
+  }
+
+  return {
+    title: `${method} ${path}`,
+    detail: `HTTP ${String(status)}`,
+    kind: status >= 200 && status < 300 ? 'ok' : 'local',
+  };
+}
+
+/**
+ * Пишет строку в HTTP-лог: заголовок + раскрываемый JSON.
+ *
+ * @param {number} status
+ * @param {string} method
+ * @param {string} path
+ * @param {unknown} body
+ * @param {Headers | undefined} [headers]
  * @returns {void}
  */
-function logHttp(status, method, path, body) {
+function logHttp(status, method, path, body, headers) {
   const list = typedEl('httpLog');
+  const summary = summarizeHttp(status, method, path, body, headers);
   const item = document.createElement('li');
-  const bucket =
-    status === 201 || status === 200
-      ? `code-${String(status)}`
-      : status === 429
-        ? 'code-429'
-        : status >= 400
-          ? status >= 500
-            ? 'code-5xx'
-            : 'code-4xx'
-          : '';
-  item.className = bucket;
-  item.textContent = `${method} ${path} → ${String(status)}\n${JSON.stringify(body, null, 2)}`;
+  item.className = `log-item kind-${summary.kind}`;
+
+  const statusClass =
+    status === 201
+      ? 'st-201'
+      : status === 200
+        ? 'st-200'
+        : status === 429
+          ? 'st-429'
+          : status >= 400
+            ? 'st-err'
+            : status === 0
+              ? 'st-local'
+              : 'st-ok';
+
+  const head = document.createElement('button');
+  head.type = 'button';
+  head.className = 'log-head-btn';
+  head.innerHTML = `
+    <span class="log-status ${statusClass}">${status === 0 ? '·' : String(status)}</span>
+    <span class="log-text">
+      <strong>${escapeHtml(summary.title)}</strong>
+      <small>${escapeHtml(summary.detail)}</small>
+    </span>
+    <span class="log-chevron" aria-hidden="true">▾</span>
+  `;
+
+  const details = document.createElement('pre');
+  details.className = 'log-json';
+  details.hidden = true;
+  details.textContent = `${method} ${path}\n${JSON.stringify(body, null, 2)}`;
+
+  head.addEventListener('click', () => {
+    details.hidden = !details.hidden;
+    item.classList.toggle('open', !details.hidden);
+  });
+
+  item.append(head, details);
   list.prepend(item);
+}
+
+/**
+ * Показывает баннер текущего сценария.
+ *
+ * @param {string | null} text
+ * @returns {void}
+ */
+function setScenarioBanner(text) {
+  const banner = typedEl('scenarioBanner');
+  if (text === null || text.length === 0) {
+    banner.hidden = true;
+    banner.textContent = '';
+    return;
+  }
+  banner.hidden = false;
+  banner.textContent = text;
+}
+
+/**
+ * Блокирует кнопки сценариев на время прогона.
+ *
+ * @param {boolean} busy
+ * @returns {void}
+ */
+function setBusy(busy) {
+  state.busy = busy;
+  document.querySelectorAll('.scenario, #btnReady, #btnSend, #btnReplayIdem').forEach((node) => {
+    if (node instanceof HTMLButtonElement) {
+      node.disabled = busy;
+    }
+  });
 }
 
 /**
@@ -143,7 +307,8 @@ function renderStats() {
 function setConnBadge(status) {
   const badge = typedEl('connBadge');
   badge.className = `badge ${status}`;
-  badge.textContent = status;
+  badge.textContent =
+    status === 'connected' ? 'online' : status === 'reconnecting' ? 'reconnect…' : 'offline';
 }
 
 /**
@@ -172,6 +337,20 @@ function applySamplePayload() {
   const type = custom.length > 0 ? custom : typedEl('typeSelect').value;
   const known = KNOWN_TYPES.find((item) => item.type === type);
   const payload = known?.sample ?? { note: 'custom' };
+  typedEl('payload').value = JSON.stringify(payload, null, 2);
+  validatePayload();
+}
+
+/**
+ * Выставляет type/payload в форме (для ручной донастройки).
+ *
+ * @param {string} type
+ * @param {object} payload
+ * @returns {void}
+ */
+function setFormTypePayload(type, payload) {
+  typedEl('typeCustom').value = '';
+  typedEl('typeSelect').value = type;
   typedEl('payload').value = JSON.stringify(payload, null, 2);
   validatePayload();
 }
@@ -216,7 +395,7 @@ function syncTargetDefault() {
 /**
  * Выдаёт dev-JWT через /api/v1/auth/dev-token.
  *
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>}
  */
 async function issueToken() {
   const userId = typedEl('userId').value.trim() || newUuid();
@@ -229,13 +408,14 @@ async function issueToken() {
     body: JSON.stringify({ userId, role: 'service' }),
   });
   const body = await res.json();
-  logHttp(res.status, 'POST', '/api/v1/auth/dev-token', body);
+  logHttp(res.status, 'POST', '/api/v1/auth/dev-token', body, res.headers);
   if (!res.ok) {
     typedEl('tokenStatus').textContent = 'ошибка токена';
-    return;
+    return false;
   }
   state.token = body.token;
-  typedEl('tokenStatus').textContent = `ok · ${userId.slice(0, 8)}…`;
+  typedEl('tokenStatus').textContent = `токен ok · ${userId.slice(0, 8)}…`;
+  return true;
 }
 
 /**
@@ -243,7 +423,7 @@ async function issueToken() {
  *
  * @param {string} path
  * @param {RequestInit & { headers?: Record<string, string> }} init
- * @returns {Promise<{ status: number; body: unknown }>}
+ * @returns {Promise<{ status: number; body: unknown; headers: Headers }>}
  */
 async function api(path, init = {}) {
   if (state.token === null) {
@@ -255,14 +435,14 @@ async function api(path, init = {}) {
   }
   const res = await fetch(`${apiBase()}${path}`, { ...init, headers });
   const text = await res.text();
-  let body = text;
+  let body = /** @type {unknown} */ (text);
   try {
     body = text.length > 0 ? JSON.parse(text) : null;
   } catch {
     // оставляем text
   }
-  logHttp(res.status, init.method ?? 'GET', path, body);
-  return { status: res.status, body };
+  logHttp(res.status, init.method ?? 'GET', path, body, res.headers);
+  return { status: res.status, body, headers: res.headers };
 }
 
 /**
@@ -270,7 +450,7 @@ async function api(path, init = {}) {
  *
  * @param {object} body
  * @param {string | undefined} idempotencyKey
- * @returns {Promise<{ status: number; body: any }>}
+ * @returns {Promise<{ status: number; body: any; headers: Headers }>}
  */
 async function createOnce(body, idempotencyKey) {
   const headers = {};
@@ -284,14 +464,11 @@ async function createOnce(body, idempotencyKey) {
   });
   if (result.status === 200 && result.body?.status === 'deduplicated') {
     state.stats.deduped += 1;
-    const id = result.body.notification?.id;
-    if (typeof id === 'string') {
+    if (typeof result.body.notification?.id === 'string') {
       upsertUnread(result.body.notification, 'dedup');
     }
   } else if (result.status === 429) {
     state.stats.limited += 1;
-  } else if (result.status === 201) {
-    // live/backlog придёт по WS
   }
   renderStats();
   return result;
@@ -322,7 +499,6 @@ async function sendBurst() {
   }
 
   for (let i = 0; i < count; i += 1) {
-    // Для демонстрации лимита меняем text у chat.message, иначе схлопнется в один.
     const nextBody =
       type === 'chat.message'
         ? {
@@ -360,6 +536,261 @@ function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+/**
+ * Ждёт connect сокета или таймаут.
+ *
+ * @param {number} [ms]
+ * @returns {Promise<boolean>}
+ */
+function waitConnected(ms = 4000) {
+  if (state.socket?.connected) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    const socket = state.socket;
+    if (socket === null) {
+      resolve(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(socket.connected);
+    }, ms);
+    const onConnect = () => {
+      cleanup();
+      resolve(true);
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.off('connect', onConnect);
+    };
+    socket.once('connect', onConnect);
+  });
+}
+
+/**
+ * Гарантирует токен и (опционально) WS.
+ *
+ * @param {{ connect?: boolean }} [opts]
+ * @returns {Promise<boolean>}
+ */
+async function ensureReady(opts = {}) {
+  const wantConnect = opts.connect !== false;
+  if (state.token === null) {
+    const ok = await issueToken();
+    if (!ok) {
+      return false;
+    }
+  }
+  if (wantConnect) {
+    if (state.io === null) {
+      return false;
+    }
+    if (state.socket === null || !state.socket.connected) {
+      connectWs(state.io);
+      const connected = await waitConnected();
+      if (!connected) {
+        logHttp(0, 'LOCAL', 'ws', { error: 'WebSocket не подключился' });
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Подготовка сессии одной кнопкой.
+ *
+ * @returns {Promise<void>}
+ */
+async function prepareSession() {
+  setBusy(true);
+  setScenarioBanner('Готовим сессию: токен и WebSocket…');
+  try {
+    typedEl('userId').value = typedEl('userId').value.trim() || newUuid();
+    syncTargetDefault();
+    const ok = await issueToken();
+    if (!ok || state.io === null) {
+      setScenarioBanner('Не удалось получить токен. Проверьте AUTH_DEV_TOKENS_ENABLED.');
+      return;
+    }
+    connectWs(state.io);
+    const connected = await waitConnected();
+    setScenarioBanner(
+      connected
+        ? 'Готово. Запускайте сценарии A → E.'
+        : 'Токен есть, но WS не подключился — попробуйте Connect.',
+    );
+  } finally {
+    setBusy(false);
+  }
+}
+
+/**
+ * Сценарий A: live-доставка одного сообщения.
+ *
+ * @returns {Promise<void>}
+ */
+async function scenarioLive() {
+  setScenarioBanner('A · Live: отправляем 1 chat.message — смотрите ленту WS (badge live).');
+  if (!(await ensureReady({ connect: true }))) {
+    return;
+  }
+  const userId = typedEl('userId').value.trim();
+  const payload = { text: `live-${Date.now()}` };
+  setFormTypePayload('chat.message', payload);
+  await createOnce({ userId, type: 'chat.message', payload }, undefined);
+  setScenarioBanner('A · Готово: в ленте должно быть live, в HTTP — «Создано новое» (201).');
+}
+
+/**
+ * Сценарий B: схлопывание дублей.
+ *
+ * @returns {Promise<void>}
+ */
+async function scenarioDedup() {
+  setScenarioBanner('B · Dedup: один order.status_changed ×3 — ждите 201, затем два «Схлопнуто».');
+  if (!(await ensureReady({ connect: true }))) {
+    return;
+  }
+  const userId = typedEl('userId').value.trim();
+  const orderId = Math.floor(Math.random() * 9000) + 100;
+  const payload = { orderId, status: 'paid' };
+  setFormTypePayload('order.status_changed', payload);
+  const body = { userId, type: 'order.status_changed', payload };
+  for (let i = 0; i < 3; i += 1) {
+    await createOnce(body, undefined);
+    if (i < 2) {
+      await sleep(120);
+    }
+  }
+  setScenarioBanner('B · Готово: одно уведомление с ×3, в ленте одно событие.');
+}
+
+/**
+ * Сценарий C: rate limit.
+ *
+ * @returns {Promise<void>}
+ */
+async function scenarioRateLimit() {
+  setScenarioBanner('C · Rate limit: 15 разных сообщений — после ~10 появятся 429.');
+  if (!(await ensureReady({ connect: true }))) {
+    return;
+  }
+  const userId = typedEl('userId').value.trim();
+  setFormTypePayload('chat.message', { text: 'rate' });
+  const stamp = Date.now();
+  for (let i = 0; i < 15; i += 1) {
+    await createOnce(
+      { userId, type: 'chat.message', payload: { text: `rate-${String(stamp)}-${String(i)}` } },
+      undefined,
+    );
+    if (i < 14) {
+      await sleep(60);
+    }
+  }
+  setScenarioBanner(
+    `C · Готово: счётчик «лимит 429» = ${String(state.stats.limited)}. Жёлтые строки в логе — отказы.`,
+  );
+}
+
+/**
+ * Сценарий D: offline → backlog.
+ *
+ * @returns {Promise<void>}
+ */
+async function scenarioBacklog() {
+  setScenarioBanner('D · Backlog: отключаем WS, шлём 3 сообщения, снова Connect…');
+  if (!(await ensureReady({ connect: true }))) {
+    return;
+  }
+  const userId = typedEl('userId').value.trim();
+  disconnectWs();
+  await sleep(200);
+  const stamp = Date.now();
+  for (let i = 0; i < 3; i += 1) {
+    await createOnce(
+      { userId, type: 'chat.message', payload: { text: `offline-${String(stamp)}-${String(i)}` } },
+      undefined,
+    );
+    if (i < 2) {
+      await sleep(80);
+    }
+  }
+  if (state.io === null) {
+    return;
+  }
+  setScenarioBanner('D · Подключаемся — в ленте ждите badge backlog…');
+  connectWs(state.io);
+  await waitConnected();
+  await sleep(800);
+  setScenarioBanner('D · Готово: в ленте события с badge backlog (или live, если успели).');
+}
+
+/**
+ * Сценарий E: idempotency key.
+ *
+ * @returns {Promise<void>}
+ */
+async function scenarioIdempotency() {
+  setScenarioBanner('E · Idempotency: два create с одним ключом.');
+  if (!(await ensureReady({ connect: true }))) {
+    return;
+  }
+  const userId = typedEl('userId').value.trim();
+  const key = newUuid();
+  const payload = { text: `idem-${Date.now()}` };
+  const body = { userId, type: 'chat.message', payload };
+  setFormTypePayload('chat.message', payload);
+  typedEl('useIdempotency').checked = true;
+  state.lastIdempotencyKey = key;
+  state.lastCreateBody = body;
+  await createOnce(body, key);
+  await sleep(200);
+  await createOnce(body, key);
+  setScenarioBanner('E · Готово: второй ответ — тот же id, без второго live-события.');
+}
+
+/**
+ * Запускает сценарий по id.
+ *
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+async function runScenario(id) {
+  if (state.busy) {
+    return;
+  }
+  setBusy(true);
+  try {
+    switch (id) {
+      case 'live':
+        await scenarioLive();
+        break;
+      case 'dedup':
+        await scenarioDedup();
+        break;
+      case 'rateLimit':
+        await scenarioRateLimit();
+        break;
+      case 'backlog':
+        await scenarioBacklog();
+        break;
+      case 'idempotency':
+        await scenarioIdempotency();
+        break;
+      default:
+        logHttp(0, 'LOCAL', 'scenario', { error: `Неизвестный сценарий: ${id}` });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Ошибка сценария';
+    logHttp(0, 'LOCAL', 'scenario', { error: message });
+    setScenarioBanner(message);
+  } finally {
+    setBusy(false);
+  }
 }
 
 /**
@@ -452,7 +883,6 @@ function handleIncoming(dto, source) {
   }
   const existing = seenById.get(dto.id);
   if (existing !== undefined) {
-    // Повтор (sweeper/backlog) — обновим occurrences, не дублируем ленту как новое.
     seenById.set(dto.id, dto);
     upsertUnread(dto, 'update');
     return;
@@ -601,20 +1031,21 @@ async function markAllRead() {
 /**
  * Вешает обработчики UI.
  *
- * @param {typeof import('socket.io-client').io} io
  * @returns {void}
  */
-function bindUi(io) {
+function bindUi() {
   typedEl('btnGenerateUser').addEventListener('click', () => {
     typedEl('userId').value = newUuid();
     syncTargetDefault();
   });
   typedEl('userId').addEventListener('change', syncTargetDefault);
-  typedEl('btnToken').addEventListener('click', () => {
-    void issueToken();
+  typedEl('btnReady').addEventListener('click', () => {
+    void prepareSession();
   });
   typedEl('btnConnect').addEventListener('click', () => {
-    connectWs(io);
+    if (state.io !== null) {
+      connectWs(state.io);
+    }
   });
   typedEl('btnDisconnect').addEventListener('click', () => {
     disconnectWs();
@@ -636,6 +1067,18 @@ function bindUi(io) {
   typedEl('btnReadAll').addEventListener('click', () => {
     void markAllRead();
   });
+  typedEl('btnClearLog').addEventListener('click', () => {
+    typedEl('httpLog').innerHTML = '';
+  });
+
+  document.querySelectorAll('[data-scenario]').forEach((node) => {
+    node.addEventListener('click', () => {
+      const id = node.getAttribute('data-scenario');
+      if (id !== null) {
+        void runScenario(id);
+      }
+    });
+  });
 }
 
 /**
@@ -650,9 +1093,10 @@ async function main() {
   applySamplePayload();
   setConnBadge('offline');
   renderStats();
+  setScenarioBanner('Нажмите «Подготовиться», затем сценарии A → E.');
 
-  const io = await loadSocketIo();
-  bindUi(io);
+  state.io = await loadSocketIo();
+  bindUi();
 }
 
 void main();
