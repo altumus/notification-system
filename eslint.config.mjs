@@ -97,6 +97,8 @@ export default tseslint.config(
         'error',
         { allowNumber: true, allowBoolean: true },
       ],
+      // NestJS-модули — пустые классы с декораторами; это идиома фреймворка.
+      '@typescript-eslint/no-extraneous-class': ['error', { allowWithDecorator: true }],
     },
   },
   {
