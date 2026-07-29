@@ -1,5 +1,9 @@
 # ADR-0007: Railway вместо VPS + Caddy для тестового стенда
 
+**Язык / Language:** Русский · [English](./en/0007-railway-instead-of-vps-caddy.md)
+
+← [Все ADR](./README.md)
+
 ## Контекст
 
 R11 требует публичный HTTPS/WSS URL. В PLAN.md заложен VPS + docker compose + Caddy.

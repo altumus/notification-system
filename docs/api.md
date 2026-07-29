@@ -1,5 +1,7 @@
 # HTTP API
 
+**Язык / Language:** Русский · [English](./en/api.md)
+
 Базовый префикс: `/api/v1`. Swagger UI: `/api/docs`.
 
 Аутентификация: `Authorization: Bearer <JWT>`. Токен содержит `sub` (userId) и `role` (`user` | `service`).

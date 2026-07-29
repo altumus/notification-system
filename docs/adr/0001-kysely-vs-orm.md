@@ -1,5 +1,9 @@
 # ADR-0001: Kysely + SQL-миграции вместо ORM
 
+**Язык / Language:** Русский · [English](./en/0001-kysely-vs-orm.md)
+
+← [Все ADR](./README.md)
+
 ## Контекст
 
 Таблица `notifications` партиционирована по `created_at`, использует составной PK `(id, created_at)`,

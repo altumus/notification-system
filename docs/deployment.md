@@ -1,5 +1,7 @@
 # Развёртывание
 
+**Язык / Language:** Русский · [English](./en/deployment.md)
+
 ## Локально
 
 Требования: Docker, Docker Compose, Node.js 22, pnpm 10.

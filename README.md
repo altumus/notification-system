@@ -1,5 +1,7 @@
 # Notification System
 
+**Язык / Language:** Русский · [English](./README.en.md)
+
 API системы уведомлений на NestJS + PostgreSQL + WebSocket (Socket.IO).
 
 ## Стек
@@ -39,6 +41,17 @@ make up
 
 ## Документация
 
-- [docs/deployment.md](./docs/deployment.md) — локально и Railway
-- [docs/demo.md](./docs/demo.md) — сценарии демо-страницы
-- [docs/api.md](./docs/api.md) — REST / WebSocket
+Полный индекс: **[docs/README.md](./docs/README.md)**
+
+| Документ               | Ссылка                                         |
+| ---------------------- | ---------------------------------------------- |
+| API (REST / WebSocket) | [docs/api.md](./docs/api.md)                   |
+| Сценарии демо          | [docs/demo.md](./docs/demo.md)                 |
+| Развёртывание          | [docs/deployment.md](./docs/deployment.md)     |
+| **ADR**                | **[docs/adr/README.md](./docs/adr/README.md)** |
+
+## Архитектурные решения (ADR)
+
+Почему Kysely, партиции, дедуп, rate limit, Railway и т.д.:
+
+→ **[Открыть список ADR](./docs/adr/README.md)**

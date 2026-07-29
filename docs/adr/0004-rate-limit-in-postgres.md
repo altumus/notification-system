@@ -1,5 +1,9 @@
 # ADR-0004: Rate limit в PostgreSQL в той же транзакции
 
+**Язык / Language:** Русский · [English](./en/0004-rate-limit-in-postgres.md)
+
+← [Все ADR](./README.md)
+
 ## Контекст
 
 R5: не больше 10 уведомлений в минуту на пару `(user_id, type)`. Лимит должен переживать

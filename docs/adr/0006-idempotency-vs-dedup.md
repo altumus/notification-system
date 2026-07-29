@@ -1,5 +1,9 @@
 # ADR-0006: Idempotency-Key отдельно от бизнес-дедупа
 
+**Язык / Language:** Русский · [English](./en/0006-idempotency-vs-dedup.md)
+
+← [Все ADR](./README.md)
+
 ## Контекст
 
 Продюсер уведомлений (очередь at-least-once, таймаут HTTP) может повторить
