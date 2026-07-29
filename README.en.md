@@ -31,7 +31,9 @@ pnpm test:e2e           # HTTP + WebSocket against a booted app
 pnpm load               # k6 load profile (needs a running stack)
 ```
 
-Load profiles and p95 targets: [docs/en/performance.md](./docs/en/performance.md).
+Measured: 300 rps of writes (×50 the 500k/day target) at p95 **7.5 ms**, reads at p95 **2.9 ms**,
+zero 5xx. Profiles, environment and full numbers:
+[docs/en/performance.md](./docs/en/performance.md#measured-results).
 
 ## Railway
 

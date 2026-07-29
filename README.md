@@ -31,7 +31,8 @@ pnpm test:e2e           # HTTP + WebSocket поверх поднятого пр�
 pnpm load               # нагрузочный профиль k6 (нужен поднятый стенд)
 ```
 
-Нагрузочные профили и целевые p95 — [docs/performance.md](./docs/performance.md).
+Замеры: 300 rps записи (×50 к целевым 500k/сутки) при p95 **7.5 мс**, чтение — p95 **2.9 мс**,
+без 5xx. Профили, окружение и полные цифры — [docs/performance.md](./docs/performance.md#измеренные-результаты).
 
 ## Railway
 

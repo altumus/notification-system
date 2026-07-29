@@ -9,13 +9,17 @@ numbers, and the k6 profiles that verify them.
 
 ## What 500k/day means
 
-| Metric                     | Value                              |
-| -------------------------- | ---------------------------------- |
-| Average write throughput   | 500,000 / 86,400 ≈ **5.8 rps**     |
-| ×10 peak (uneven day)      | ≈ **60 rps**                       |
-| Row + 4 indexes            | ≈ 250 B + 250 B ≈ **500 B**        |
-| Data growth                | ≈ **250 MB/day**, ≈ **90 GB/year** |
-| Rows per monthly partition | ≈ **15M**                          |
+| Metric                     | Value                               |
+| -------------------------- | ----------------------------------- |
+| Average write throughput   | 500,000 / 86,400 ≈ **5.8 rps**      |
+| ×10 peak (uneven day)      | ≈ **60 rps**                        |
+| Row + indexes (measured)   | 192 B + 403 B ≈ **595 B**           |
+| Data growth                | ≈ **295 MB/day**, ≈ **106 GB/year** |
+| Rows per monthly partition | ≈ **15M**                           |
+
+Row size is measured, not estimated: 44,185 rows took 8.3 MB of heap and 17 MB of indexes (see
+[results](#measured-results)). Indexes cost more than the data itself — that is the price of the
+partial unread index, the dedup index and the rate-limit index.
 
 Average load is modest — the real risk is not RPS but accumulated volume: without
 partitioning, indexes over hundreds of millions of rows degrade, and a `DELETE`-based
@@ -79,6 +83,47 @@ requests per IP ([ADR-0008](./../adr/en/0008-http-rate-limit.md)), while k6 emul
 clients from a single address: with the limit on, the profile measures the guard instead of the
 API. The business limit on `(userId, type)` stays enabled — that is the one that should produce
 429s in the report. In CI this is handled by the "Start stack" step.
+
+## Measured results
+
+Environment: `docker compose` on a single machine (Ryzen 7 7800X3D, 64 GB RAM, Docker 29.0.1),
+PostgreSQL 17.10 in a container with `shared_buffers=256MB`, a **single** API instance, k6 in the
+same docker network (`BASE_URL=http://api:3000`), `HTTP_RATE_LIMIT_ENABLED=false`. At the time of
+the runs the table held ~44k rows in one monthly partition (25 MB including indexes).
+
+| Profile             | Target rps          | Achieved     | p95         | p99         | Thresholds |
+| ------------------- | ------------------- | ------------ | ----------- | ----------- | ---------- |
+| `create` / `peak`   | 60 rps writes       | 60.01 rps    | **7.39 ms** | **9.03 ms** | passed     |
+| `create` / `stress` | 300 rps writes      | 300.00 rps   | **7.54 ms** | —           | passed     |
+| `read` / `peak`     | 300 iterations/s    | 599 HTTP rps | **2.93 ms** | **5.56 ms** | passed     |
+| `hot-pair` / `peak` | 100 rps to one pair | 100.01 rps   | **3.62 ms** | **5.57 ms** | passed     |
+
+What follows from this:
+
+- **The p95 targets are not merely met but beaten by an order of magnitude** (7.4 ms against a
+  200 ms target on writes, 2.9 ms against 100 ms on reads). Zero 5xx, `http_req_failed` = 0.00%
+  across all four runs.
+- **No ceiling was found at ×50.** `stress` (300 rps of writes = 25.9M notifications/day) runs at
+  the same latency as `peak` at one fifth the intensity: p95 7.54 ms versus 7.39 ms. At 500k/day
+  the application is nowhere near saturation, so the bottleneck is not here.
+- **`hot-pair` does not degrade the way ADR-0004 predicted.** 6,000 requests into a single
+  `(userId, type)` pair under one advisory lock produced a p99 of 5.57 ms. The reason: once the
+  window is exhausted, a request answers 429 after a single indexed `count` without reaching the
+  insert — the short path serializes, not the whole transaction. The ADR-0004 revisit trigger
+  still stands, but the boundary is noticeably further out than the paper analysis suggested.
+- **These numbers are a lower bound.** k6 ran inside the same docker network, without real network
+  RTT and without TLS. On Railway every request additionally pays the trip to the edge; compare
+  runs on identical configurations rather than these values against production.
+
+To reproduce:
+
+```bash
+docker compose up -d --build api
+k6 run -e LOAD_PROFILE=peak load/create-notifications.js
+k6 run -e LOAD_PROFILE=peak load/read-unread.js
+k6 run -e LOAD_PROFILE=peak load/hot-pair.js
+k6 run -e LOAD_PROFILE=stress load/create-notifications.js
+```
 
 ## How to read the results
 

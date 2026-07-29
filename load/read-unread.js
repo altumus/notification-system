@@ -19,6 +19,7 @@ import http from 'k6/http';
 import {
   buildUniquePayload,
   issueServiceToken,
+  issueToken,
   jsonAuthHeaders,
   NOTIFICATION_TYPES,
   resolveBaseUrl,
@@ -60,9 +61,13 @@ export const options = {
 };
 
 /**
- * Создаёт пользователя с непрочитанными уведомлениями.
+ * Создаёт пользователя с непрочитанными уведомлениями и токен для чтения от его имени.
  *
- * @returns {{ token: string, userId: string }} Данные для сценария
+ * Зачем два токена: service пишет любому userId, но `GET /unread` всегда читает под `sub`
+ * своего токена. Читать сервисным токеном означало бы мерить выборку по пустому списку —
+ * то есть не тот план запроса, который нас интересует.
+ *
+ * @returns {{ readToken: string, userId: string, seeded: number }} Данные для сценария
  */
 export function setup() {
   const token = issueServiceToken(BASE_URL);
@@ -89,17 +94,17 @@ export function setup() {
   if (seeded === 0) {
     fail('Не удалось создать ни одного уведомления для чтения');
   }
-  return { token, userId, seeded };
+  return { readToken: issueToken(BASE_URL, userId, 'user'), userId, seeded };
 }
 
 /**
  * Читает список непрочитанных и счётчик.
  *
- * @param {{ token: string }} data - результат setup
+ * @param {{ readToken: string }} data - результат setup
  * @returns {void}
  */
 export default function readUnread(data) {
-  const headers = { authorization: `Bearer ${data.token}` };
+  const headers = { authorization: `Bearer ${data.readToken}` };
 
   const list = http.get(`${BASE_URL}/api/v1/notifications/unread?limit=20`, {
     headers,

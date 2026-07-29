@@ -75,21 +75,31 @@ export function userIdForVu(vu) {
 }
 
 /**
+ * Получает токен на конкретный userId и роль.
+ *
+ * @param {string} baseUrl - базовый URL стенда
+ * @param {string} userId - субъект токена
+ * @param {'user' | 'service'} role - роль актора
+ * @returns {string} JWT
+ */
+export function issueToken(baseUrl, userId, role) {
+  const res = http.post(`${baseUrl}/api/v1/auth/dev-token`, JSON.stringify({ userId, role }), {
+    headers: { 'content-type': 'application/json' },
+  });
+  if (res.status !== 201) {
+    fail(`dev-token → ${res.status} (нужен AUTH_DEV_TOKENS_ENABLED=true на стенде)`);
+  }
+  return res.json('token');
+}
+
+/**
  * Получает service-токен: он может создавать уведомления любому userId.
  *
  * @param {string} baseUrl - базовый URL стенда
  * @returns {string} JWT
  */
 export function issueServiceToken(baseUrl) {
-  const res = http.post(
-    `${baseUrl}/api/v1/auth/dev-token`,
-    JSON.stringify({ userId: uuidv4(), role: 'service' }),
-    { headers: { 'content-type': 'application/json' } },
-  );
-  if (res.status !== 201) {
-    fail(`dev-token → ${res.status} (нужен AUTH_DEV_TOKENS_ENABLED=true на стенде)`);
-  }
-  return res.json('token');
+  return issueToken(baseUrl, uuidv4(), 'service');
 }
 
 /**

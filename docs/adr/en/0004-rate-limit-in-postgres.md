@@ -27,6 +27,11 @@ window; collapsed duplicates and rejected attempts do not.
 - Pros: one source of truth (Postgres); races closed by the advisory lock.
 - Cons: at thousands of RPS on a hot `(user, type)` pair, `count` becomes a bottleneck.
 
+The `hot-pair` profile showed the boundary is further out than expected: 100 rps into one pair
+produced a p99 of 5.57 ms. Once the window is exhausted, a request answers 429 after a single
+indexed `count` without reaching the insert, so the short path serializes rather than the whole
+transaction — [results](../../en/performance.md#measured-results).
+
 ## Revisit trigger
 
 At thousands of RPS on one pair — move the hot counter to Redis (Lua / ZSET), keeping Postgres
