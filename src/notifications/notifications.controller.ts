@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
   HttpCode,
@@ -15,6 +16,9 @@ import {
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { AuthenticatedActor } from '../auth/token-verifier.js';
+
 import { RateLimitExceededError } from './domain/errors.js';
 import type { Notification } from './domain/notification.entity.js';
 import { CreateNotificationDto } from './dto/create-notification.dto.js';
@@ -26,8 +30,7 @@ import { NotificationsService } from './notifications.service.js';
  * REST API уведомлений (`/api/v1/notifications`).
  *
  * Зачем: публичный контракт R1 — create / unread / mark read.
- * Как: тонкий слой валидация → сервис → DTO. До коммита 10 владелец читающих
- * операций передаётся заголовком `X-User-Id` (заменится на JWT).
+ * Как: тонкий слой валидация → сервис → DTO; userId читающих операций — из JWT.
  */
 @ApiTags('notifications')
 @ApiBearerAuth()
@@ -43,10 +46,11 @@ export class NotificationsController {
   /**
    * Создаёт уведомление или возвращает схлопнутый дубль.
    *
-   * Зачем: R1 create; 201 vs 200 различают «новая сущность» и «deduplicated».
+   * Зачем: R1 create; роль `service` может писать любому userId, роль `user` — только себе.
    * Как: сервис create; RateLimitExceededError → 429 + RateLimit-* заголовки.
    *
    * @param body - DTO создания
+   * @param actor - текущий JWT-актор
    * @param _idempotencyKey - зарезервировано (коммит 11)
    * @param res - Express Response для статус-кода и заголовков
    * @returns Тело с status и notification
@@ -56,13 +60,18 @@ export class NotificationsController {
   @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiResponse({ status: 201, description: 'Создано' })
   @ApiResponse({ status: 200, description: 'Схлопнуто (deduplicated)' })
+  @ApiResponse({ status: 403, description: 'userId не совпадает с токеном роли user' })
   @ApiResponse({ status: 422, description: 'Ошибка валидации' })
   @ApiResponse({ status: 429, description: 'Превышен rate limit' })
   public async create(
     @Body() body: CreateNotificationDto,
+    @CurrentUser() actor: AuthenticatedActor,
     @Headers('idempotency-key') _idempotencyKey: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ status: 'created' | 'deduplicated'; notification: NotificationResponseDto }> {
+    if (actor.role === 'user' && body.userId !== actor.userId) {
+      throw new ForbiddenException('Роль user может создавать уведомления только себе');
+    }
     try {
       const result = await this.notificationsService.create({
         userId: body.userId,
@@ -86,24 +95,27 @@ export class NotificationsController {
    * Список непрочитанных с keyset-пагинацией.
    *
    * @param query - limit и cursor
-   * @param userId - временный X-User-Id до JWT (коммит 10)
+   * @param actor - JWT-актор (получатель)
    * @returns Страница непрочитанных
    */
   @Get('unread')
   @ApiOperation({ summary: 'Список непрочитанных' })
-  @ApiHeader({ name: 'X-User-Id', required: true })
   @ApiResponse({ status: 200, description: 'OK' })
   @ApiResponse({ status: 422, description: 'Битый cursor' })
   public async listUnread(
     @Query() query: GetUnreadQueryDto,
-    @Headers('x-user-id') userId: string,
+    @CurrentUser() actor: AuthenticatedActor,
   ): Promise<{
     items: NotificationResponseDto[];
     nextCursor: string | null;
     unreadCount: number;
     unreadCountExact: boolean;
   }> {
-    const result = await this.notificationsService.listUnread(userId, query.limit, query.cursor);
+    const result = await this.notificationsService.listUnread(
+      actor.userId,
+      query.limit,
+      query.cursor,
+    );
     return {
       items: result.items.map(toResponseDto),
       nextCursor: result.nextCursor,
@@ -115,52 +127,51 @@ export class NotificationsController {
   /**
    * Счётчик непрочитанных для бейджа.
    *
-   * @param userId - временный X-User-Id
+   * @param actor - JWT-актор
    * @returns count и exact
    */
   @Get('unread/count')
   @ApiOperation({ summary: 'Счётчик непрочитанных' })
-  @ApiHeader({ name: 'X-User-Id', required: true })
   @ApiResponse({ status: 200, description: 'OK' })
   public async countUnread(
-    @Headers('x-user-id') userId: string,
+    @CurrentUser() actor: AuthenticatedActor,
   ): Promise<{ count: number; exact: boolean }> {
-    return this.notificationsService.countUnread(userId);
+    return this.notificationsService.countUnread(actor.userId);
   }
 
   /**
    * Помечает уведомление прочитанным.
    *
    * @param id - UUIDv7 уведомления
-   * @param userId - временный X-User-Id
+   * @param actor - JWT-актор
    * @returns Обновлённое уведомление
    */
   @Patch(':id/read')
   @ApiOperation({ summary: 'Пометить прочитанным' })
-  @ApiHeader({ name: 'X-User-Id', required: true })
   @ApiResponse({ status: 200, description: 'OK' })
   @ApiResponse({ status: 404, description: 'Не найдено' })
   public async markAsRead(
     @Param('id', new ParseUUIDPipe({ version: '7' })) id: string,
-    @Headers('x-user-id') userId: string,
+    @CurrentUser() actor: AuthenticatedActor,
   ): Promise<{ notification: NotificationResponseDto }> {
-    const notification = await this.notificationsService.markAsRead(userId, id);
+    const notification = await this.notificationsService.markAsRead(actor.userId, id);
     return { notification: toResponseDto(notification) };
   }
 
   /**
    * Помечает все непрочитанные прочитанными.
    *
-   * @param userId - временный X-User-Id
+   * @param actor - JWT-актор
    * @returns Число обновлённых строк
    */
   @Post('read-all')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Прочитать все' })
-  @ApiHeader({ name: 'X-User-Id', required: true })
   @ApiResponse({ status: 200, description: 'OK' })
-  public async markAllAsRead(@Headers('x-user-id') userId: string): Promise<{ updated: number }> {
-    return this.notificationsService.markAllAsRead(userId);
+  public async markAllAsRead(
+    @CurrentUser() actor: AuthenticatedActor,
+  ): Promise<{ updated: number }> {
+    return this.notificationsService.markAllAsRead(actor.userId);
   }
 }
 

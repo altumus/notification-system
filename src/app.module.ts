@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 
+import { AuthModule } from './auth/auth.module.js';
 import { AppConfigModule } from './common/config/config.module.js';
 import { AppLoggingModule } from './common/logging/logging.module.js';
 import { DatabaseModule } from './database/database.module.js';
@@ -12,13 +13,14 @@ import { NotificationsModule } from './notifications/notifications.module.js';
  * Корневой модуль приложения.
  *
  * Зачем: собирает инфраструктурные и доменные модули.
- * Как: конфиг, логи, БД, maintenance, notifications, health; realtime — в коммитах 12+.
+ * Как: конфиг, логи, auth, БД, maintenance, notifications, health; realtime — в коммитах 12+.
  */
 @Module({
   imports: [
     AppConfigModule,
     AppLoggingModule,
     EventEmitterModule.forRoot(),
+    AuthModule,
     DatabaseModule,
     MaintenanceModule,
     NotificationsModule,

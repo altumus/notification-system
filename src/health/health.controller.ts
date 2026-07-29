@@ -2,6 +2,7 @@ import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 
+import { Public } from '../auth/decorators/public.decorator.js';
 import { DatabaseHealthIndicator } from '../database/database.health.js';
 import { getAppVersion } from '../version.js';
 
@@ -12,6 +13,7 @@ import { getAppVersion } from '../version.js';
  * Как: /live всегда 200 и не трогает БД; /ready проверяет доступность PostgreSQL через
  * DatabaseHealthIndicator. VERSION_NEUTRAL — пути без /v1, как требует контракт /health/live.
  */
+@Public()
 @ApiTags('health')
 @Controller({ path: 'health', version: VERSION_NEUTRAL })
 export class HealthController {
